@@ -78,3 +78,7 @@ export const getAuditLogs = (params) =>
   api.get('/audit-logs/', { params })
 
 export default api
+
+// Admin — get all tickets across all users
+export const getAllTickets = (params) =>
+  api.get('/approvals/all', { params })

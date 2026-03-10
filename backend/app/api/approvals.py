@@ -4,6 +4,7 @@ from app.database import get_db
 from app.models.ticket import TicketRequest, EnvironmentTemplate
 from app.models.user import User
 from app.utils.security import get_current_user
+from app.api.users import require_admin
 from app.services.email_service import send_ticket_approved_email, send_ticket_rejected_email
 from app.services.audit_service import log_action
 from app.tasks.provisioning_tasks import provision_environment_task, destroy_environment_task
@@ -181,3 +182,14 @@ def destroy_ticket_environment(
         "ticket_number": ticket.ticket_number,
         "status": "expired"
     }
+
+@router.get("/all")
+def get_all_tickets(
+    status: str = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    query = db.query(TicketRequest)
+    if status:
+        query = query.filter(TicketRequest.status == status)
+    return query.order_by(TicketRequest.created_at.desc()).all()

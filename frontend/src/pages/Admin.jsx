@@ -1,20 +1,23 @@
 import { useState, useEffect } from 'react'
 import Navbar from '../components/Navbar'
-import { getPendingTickets, approveTicket, rejectTicket, getUsers, updateUserRole, getAuditLogs } from '../services/api'
+import { getPendingTickets, approveTicket, rejectTicket, getUsers, updateUserRole, getAuditLogs, destroyEnvironment, getAllTickets } from '../services/api'
 
 const TAB_PENDING = 'pending'
+const TAB_ACTIVE = 'active'
 const TAB_USERS = 'users'
 const TAB_AUDIT = 'audit'
 
 export default function Admin() {
   const [tab, setTab] = useState(TAB_PENDING)
   const [pending, setPending] = useState([])
+  const [activeTickets, setActiveTickets] = useState([])
   const [users, setUsers] = useState([])
   const [auditLogs, setAuditLogs] = useState([])
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(null)
   const [rejectReason, setRejectReason] = useState({})
   const [showReject, setShowReject] = useState(null)
+  const [confirmDestroy, setConfirmDestroy] = useState(null)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
 
@@ -23,14 +26,16 @@ export default function Admin() {
   const fetchAll = async () => {
     setLoading(true)
     try {
-      const [pendingRes, usersRes, auditRes] = await Promise.all([
+      const [pendingRes, usersRes, auditRes, activeRes] = await Promise.all([
         getPendingTickets(),
         getUsers(),
-        getAuditLogs({ limit: 20 })
+        getAuditLogs({ limit: 20 }),
+        getAllTickets({ status: 'active' })
       ])
       setPending(pendingRes.data)
       setUsers(usersRes.data)
       setAuditLogs(auditRes.data)
+      setActiveTickets(activeRes.data)
     } catch (err) {
       setError('Failed to load data')
     } finally {
@@ -40,6 +45,7 @@ export default function Admin() {
 
   const handleApprove = async (id, ticketNumber) => {
     setActionLoading(id)
+    setError('')
     try {
       await approveTicket(id)
       setMessage(`${ticketNumber} approved — provisioning started`)
@@ -54,6 +60,7 @@ export default function Admin() {
 
   const handleReject = async (id, ticketNumber) => {
     setActionLoading(id)
+    setError('')
     try {
       await rejectTicket(id, rejectReason[id] || 'Rejected by admin')
       setMessage(`${ticketNumber} rejected`)
@@ -67,7 +74,24 @@ export default function Admin() {
     }
   }
 
+  const handleDestroy = async (id, ticketNumber) => {
+    setActionLoading(id)
+    setError('')
+    try {
+      await destroyEnvironment(id)
+      setMessage(`${ticketNumber} destroy initiated — environment will be removed shortly`)
+      setConfirmDestroy(null)
+      fetchAll()
+      setTimeout(() => setMessage(''), 5000)
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to destroy')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
   const handleRoleChange = async (userId, newRole) => {
+    setError('')
     try {
       await updateUserRole(userId, newRole)
       setMessage('Role updated successfully')
@@ -79,7 +103,8 @@ export default function Admin() {
   }
 
   const tabs = [
-    { id: TAB_PENDING, label: `Pending Approvals (${pending.length})` },
+    { id: TAB_PENDING, label: `Pending (${pending.length})` },
+    { id: TAB_ACTIVE, label: `Active (${activeTickets.length})` },
     { id: TAB_USERS, label: `Users (${users.length})` },
     { id: TAB_AUDIT, label: 'Audit Log' },
   ]
@@ -97,13 +122,11 @@ export default function Admin() {
       <Navbar />
       <div className="max-w-6xl mx-auto px-6 py-8">
 
-        {/* Header */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-gray-900">Admin Panel</h1>
           <p className="text-gray-500 text-sm mt-1">Manage approvals, users, and audit logs</p>
         </div>
 
-        {/* Alerts */}
         {message && (
           <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-6 text-sm">
             {message}
@@ -130,7 +153,7 @@ export default function Admin() {
           ))}
         </div>
 
-        {/* Pending Approvals Tab */}
+        {/* Pending Approvals */}
         {tab === TAB_PENDING && (
           <div className="bg-white rounded-xl border border-gray-200">
             <div className="px-6 py-4 border-b border-gray-100">
@@ -155,7 +178,6 @@ export default function Admin() {
                         <div className="flex gap-4 mt-3 text-xs text-gray-400">
                           <span>Duration: {ticket.duration_days} days</span>
                           <span>Cost: ${ticket.estimated_cost_usd}</span>
-                          <span>Template ID: {ticket.template_id}</span>
                           <span>User ID: {ticket.user_id}</span>
                         </div>
                       </div>
@@ -165,13 +187,13 @@ export default function Admin() {
                           disabled={actionLoading === ticket.id}
                           className="bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors"
                         >
-                          {actionLoading === ticket.id ? 'Processing...' : 'Approve'}
+                          {actionLoading === ticket.id ? 'Processing...' : '✓ Approve'}
                         </button>
                         <button
                           onClick={() => setShowReject(showReject === ticket.id ? null : ticket.id)}
                           className="bg-red-50 hover:bg-red-100 text-red-600 text-xs font-semibold px-4 py-2 rounded-lg transition-colors"
                         >
-                          Reject
+                          ✕ Reject
                         </button>
                       </div>
                     </div>
@@ -189,13 +211,84 @@ export default function Admin() {
                           disabled={actionLoading === ticket.id}
                           className="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold px-4 py-2 rounded-lg"
                         >
-                          Confirm
+                          Confirm Reject
                         </button>
                       </div>
                     )}
                   </div>
                 ))}
               </div>
+            )}
+          </div>
+        )}
+
+        {/* Active Environments */}
+        {tab === TAB_ACTIVE && (
+          <div className="bg-white rounded-xl border border-gray-200">
+            <div className="px-6 py-4 border-b border-gray-100">
+              <h2 className="text-base font-semibold text-gray-900">Active Environments</h2>
+            </div>
+            {activeTickets.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-gray-400 text-sm">No active environments.</p>
+              </div>
+            ) : (
+              <table className="w-full">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr>
+                    {['Ticket', 'Title', 'User', 'URL', 'Instance', 'Expires', 'Action'].map(h => (
+                      <th key={h} className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {activeTickets.map(ticket => {
+                    const expiresAt = new Date(ticket.created_at)
+                    expiresAt.setDate(expiresAt.getDate() + ticket.duration_days)
+                    return (
+                      <tr key={ticket.id} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 text-xs font-mono text-gray-600">{ticket.ticket_number}</td>
+                        <td className="px-6 py-4 text-sm text-gray-900">{ticket.title}</td>
+                        <td className="px-6 py-4 text-xs text-gray-500">User {ticket.user_id}</td>
+                        <td className="px-6 py-4">
+                          {ticket.environment_url ? (
+                            <a href={ticket.environment_url} target="_blank" rel="noreferrer"
+                              className="text-blue-600 text-xs hover:underline">{ticket.environment_url}</a>
+                          ) : <span className="text-gray-300 text-xs">—</span>}
+                        </td>
+                        <td className="px-6 py-4 text-xs font-mono text-gray-400">{ticket.instance_id || '—'}</td>
+                        <td className="px-6 py-4 text-xs text-gray-400">{expiresAt.toLocaleDateString()}</td>
+                        <td className="px-6 py-4">
+                          {confirmDestroy === ticket.id ? (
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => setConfirmDestroy(null)}
+                                className="text-xs text-gray-500 px-2 py-1 border border-gray-200 rounded hover:bg-gray-50"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                onClick={() => handleDestroy(ticket.id, ticket.ticket_number)}
+                                disabled={actionLoading === ticket.id}
+                                className="text-xs bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700"
+                              >
+                                {actionLoading === ticket.id ? 'Destroying...' : 'Confirm'}
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setConfirmDestroy(ticket.id)}
+                              className="text-xs bg-red-50 text-red-600 px-3 py-1.5 rounded-lg hover:bg-red-100 font-medium"
+                            >
+                              Destroy
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             )}
           </div>
         )}
@@ -253,7 +346,7 @@ export default function Admin() {
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-100">
                 <tr>
-                  {['Action', 'Resource', 'Resource ID', 'IP', 'Time'].map(h => (
+                  {['Action', 'Resource', 'Resource ID', 'Details', 'IP', 'Time'].map(h => (
                     <th key={h} className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">{h}</th>
                   ))}
                 </tr>
@@ -266,6 +359,9 @@ export default function Admin() {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500 capitalize">{log.resource_type}</td>
                     <td className="px-6 py-4 text-xs font-mono text-gray-600">{log.resource_id}</td>
+                    <td className="px-6 py-4 text-xs text-gray-400 max-w-xs truncate">
+                      {log.details ? JSON.stringify(log.details).slice(0, 60) + '...' : '—'}
+                    </td>
                     <td className="px-6 py-4 text-xs text-gray-400">{log.ip_address || '—'}</td>
                     <td className="px-6 py-4 text-xs text-gray-400">{new Date(log.created_at).toLocaleString()}</td>
                   </tr>

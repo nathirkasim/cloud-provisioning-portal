@@ -1,5 +1,4 @@
-import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import Navbar from '../components/Navbar'
 import { getMyTickets, getTemplates, createTicket, estimateCost } from '../services/api'
@@ -22,9 +21,10 @@ const STATUS_LABELS = {
   rejected: 'Rejected',
 }
 
+const TEMPLATE_NAMES = { 1: 'Web App', 2: 'Database', 3: 'Serverless' }
+
 export default function Dashboard() {
   const { user } = useAuth()
-  const navigate = useNavigate()
   const [tickets, setTickets] = useState([])
   const [templates, setTemplates] = useState([])
   const [loading, setLoading] = useState(true)
@@ -34,10 +34,25 @@ export default function Dashboard() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const pollRef = useRef(null)
 
   useEffect(() => {
     fetchData()
+    return () => clearInterval(pollRef.current)
   }, [])
+
+  // Auto-refresh every 10 seconds if any ticket is provisioning
+  useEffect(() => {
+    const hasProvisioning = tickets.some(t =>
+      ['provisioning', 'approved'].includes(t.status)
+    )
+    if (hasProvisioning) {
+      pollRef.current = setInterval(fetchData, 10000)
+    } else {
+      clearInterval(pollRef.current)
+    }
+    return () => clearInterval(pollRef.current)
+  }, [tickets])
 
   useEffect(() => {
     if (form.template_id && form.duration_days) {
@@ -49,7 +64,10 @@ export default function Dashboard() {
 
   const fetchData = async () => {
     try {
-      const [ticketsRes, templatesRes] = await Promise.all([getMyTickets(), getTemplates()])
+      const [ticketsRes, templatesRes] = await Promise.all([
+        getMyTickets(),
+        getTemplates()
+      ])
       setTickets(ticketsRes.data)
       setTemplates(templatesRes.data)
     } catch (err) {
@@ -83,7 +101,6 @@ export default function Dashboard() {
     }
   }
 
-  // Stats
   const stats = {
     total: tickets.length,
     active: tickets.filter(t => t.status === 'active').length,
@@ -102,7 +119,6 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar />
-
       <div className="max-w-6xl mx-auto px-6 py-8">
 
         {/* Header */}
@@ -128,6 +144,14 @@ export default function Dashboard() {
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 text-sm">
             {error}
+          </div>
+        )}
+
+        {/* Auto-refresh notice */}
+        {tickets.some(t => ['provisioning', 'approved'].includes(t.status)) && (
+          <div className="bg-purple-50 border border-purple-200 text-purple-700 px-4 py-3 rounded-lg mb-6 text-sm flex items-center gap-2">
+            <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-purple-600"></div>
+            Environment is being provisioned — page auto-refreshes every 10 seconds...
           </div>
         )}
 
@@ -202,7 +226,6 @@ export default function Dashboard() {
                 />
               </div>
 
-              {/* Cost estimate */}
               {estimate && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                   <p className="text-sm font-medium text-blue-800">Cost Estimate</p>
@@ -246,8 +269,11 @@ export default function Dashboard() {
 
         {/* Tickets Table */}
         <div className="bg-white rounded-xl border border-gray-200">
-          <div className="px-6 py-4 border-b border-gray-100">
+          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
             <h2 className="text-base font-semibold text-gray-900">My Requests</h2>
+            <button onClick={fetchData} className="text-xs text-gray-400 hover:text-blue-600 transition-colors">
+              ↻ Refresh
+            </button>
           </div>
           {tickets.length === 0 ? (
             <div className="text-center py-12">
@@ -273,16 +299,20 @@ export default function Dashboard() {
                   <tr key={ticket.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4 text-xs font-mono text-gray-600">{ticket.ticket_number}</td>
                     <td className="px-6 py-4 text-sm text-gray-900 max-w-xs truncate">{ticket.title}</td>
-                    <td className="px-6 py-4 text-sm text-gray-500 capitalize">{ticket.template_id === 1 ? 'Web App' : ticket.template_id === 2 ? 'Database' : 'Serverless'}</td>
+                    <td className="px-6 py-4 text-sm text-gray-500">{TEMPLATE_NAMES[ticket.template_id] || 'Unknown'}</td>
                     <td className="px-6 py-4 text-sm text-gray-500">{ticket.duration_days}d</td>
                     <td className="px-6 py-4">
                       <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${STATUS_COLORS[ticket.status]}`}>
+                        {ticket.status === 'provisioning' && (
+                          <span className="inline-block w-2 h-2 bg-purple-500 rounded-full mr-1 animate-pulse"></span>
+                        )}
                         {STATUS_LABELS[ticket.status]}
                       </span>
                     </td>
                     <td className="px-6 py-4">
                       {ticket.environment_url ? (
-                        <a href={ticket.environment_url} target="_blank" rel="noreferrer" className="text-blue-600 text-xs hover:underline truncate max-w-32 block">
+                        <a href={ticket.environment_url} target="_blank" rel="noreferrer"
+                          className="text-blue-600 text-xs hover:underline truncate max-w-32 block">
                           {ticket.environment_url}
                         </a>
                       ) : <span className="text-gray-300 text-xs">—</span>}
