@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { login, getMe } from '../services/api'
 import { useAuth } from '../context/AuthContext'
 
@@ -10,6 +10,8 @@ export default function Login() {
   const [loading, setLoading] = useState(false)
   const { loginUser } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const justRegistered = searchParams.get('registered') === 'true'
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -21,8 +23,7 @@ export default function Login() {
       localStorage.setItem('token', token)
       const meRes = await getMe()
       loginUser(token, meRes.data)
-      // Redirect based on role
-      if (meRes.data.role === 'admin' || meRes.data.role === 'approver') {
+      if (['admin', 'approver'].includes(meRes.data.role)) {
         navigate('/admin')
       } else {
         navigate('/dashboard')
@@ -47,6 +48,13 @@ export default function Login() {
           <h1 className="text-2xl font-bold text-gray-900">Cloud Portal</h1>
           <p className="text-gray-500 text-sm mt-1">Sign in to your account</p>
         </div>
+
+        {/* Registration success */}
+        {justRegistered && (
+          <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-6 text-sm">
+            Account created successfully! Please sign in.
+          </div>
+        )}
 
         {/* Error */}
         {error && (

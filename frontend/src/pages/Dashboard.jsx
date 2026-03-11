@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import Navbar from '../components/Navbar'
 import { getMyTickets, getTemplates, createTicket, estimateCost } from '../services/api'
@@ -25,6 +26,7 @@ const TEMPLATE_NAMES = { 1: 'Web App', 2: 'Database', 3: 'Serverless' }
 
 export default function Dashboard() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [tickets, setTickets] = useState([])
   const [templates, setTemplates] = useState([])
   const [loading, setLoading] = useState(true)
@@ -297,7 +299,7 @@ export default function Dashboard() {
               <tbody className="divide-y divide-gray-100">
                 {tickets.map(ticket => (
                   <tr key={ticket.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-4 text-xs font-mono text-gray-600">{ticket.ticket_number}</td>
+                    <td className="px-6 py-4 text-xs font-mono text-blue-600 hover:underline cursor-pointer" onClick={() => navigate(`/tickets/${ticket.id}`)}>{ticket.ticket_number}</td>
                     <td className="px-6 py-4 text-sm text-gray-900 max-w-xs truncate">{ticket.title}</td>
                     <td className="px-6 py-4 text-sm text-gray-500">{TEMPLATE_NAMES[ticket.template_id] || 'Unknown'}</td>
                     <td className="px-6 py-4 text-sm text-gray-500">{ticket.duration_days}d</td>
