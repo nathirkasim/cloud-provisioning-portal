@@ -4,12 +4,16 @@ from app.api import auth, tickets, users, audit_logs
 from app.api import approvals
 from app.database import engine
 from sqlalchemy import text
+import os
 
 app = FastAPI(title="Cloud Provisioning Portal")
 
+# CORS — allow localhost for dev, production URL for prod
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
