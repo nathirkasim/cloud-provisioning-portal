@@ -71,7 +71,8 @@ def approve_ticket(
         ticket_number=ticket.ticket_number,
         template_type=template.template_type,
         owner_email=requester.email if requester else "unknown@portal.com",
-        duration_days=ticket.duration_days
+        duration_days=ticket.duration_days,
+        department=requester.department if requester else "Engineering"
     )
 
     return {
@@ -193,3 +194,57 @@ def get_all_tickets(
     if status:
         query = query.filter(TicketRequest.status == status)
     return query.order_by(TicketRequest.created_at.desc()).all()
+
+@router.get("/stats")
+def get_portal_stats(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_admin)
+):
+    from sqlalchemy import func
+    from app.models.user import User
+
+    total_tickets = db.query(TicketRequest).count()
+    active = db.query(TicketRequest).filter(TicketRequest.status == "active").count()
+    pending = db.query(TicketRequest).filter(TicketRequest.status == "pending_approval").count()
+    provisioning = db.query(TicketRequest).filter(TicketRequest.status == "provisioning").count()
+    expired = db.query(TicketRequest).filter(TicketRequest.status == "expired").count()
+    rejected = db.query(TicketRequest).filter(TicketRequest.status == "rejected").count()
+
+    total_cost = db.query(func.sum(TicketRequest.estimated_cost_usd)).scalar() or 0
+    active_cost = db.query(func.sum(TicketRequest.estimated_cost_usd)).filter(
+        TicketRequest.status == "active"
+    ).scalar() or 0
+
+    # Per user stats
+    user_stats = db.query(
+        User.email,
+        User.full_name,
+        User.department,
+        func.count(TicketRequest.id).label("total_tickets"),
+        func.sum(TicketRequest.estimated_cost_usd).label("total_cost")
+    ).join(TicketRequest, User.id == TicketRequest.user_id, isouter=True)\
+     .group_by(User.id, User.email, User.full_name, User.department)\
+     .all()
+
+    return {
+        "overview": {
+            "total_tickets": total_tickets,
+            "active": active,
+            "pending": pending,
+            "provisioning": provisioning,
+            "expired": expired,
+            "rejected": rejected,
+            "total_cost_usd": float(total_cost),
+            "active_cost_usd": float(active_cost),
+        },
+        "per_user": [
+            {
+                "email": u.email,
+                "full_name": u.full_name,
+                "department": u.department,
+                "total_tickets": u.total_tickets or 0,
+                "total_cost_usd": float(u.total_cost or 0)
+            }
+            for u in user_stats
+        ]
+    }

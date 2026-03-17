@@ -87,6 +87,7 @@ resource "aws_instance" "web_app" {
     Owner        = var.owner_email
     DurationDays = var.duration_days
     ManagedBy    = "CloudPortal"
+    Department   = var.department
     CreatedAt    = timestamp()
   }
 }

@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import Navbar from '../components/Navbar'
-import { getPendingTickets, approveTicket, rejectTicket, getUsers, updateUserRole, getAuditLogs, destroyEnvironment, getAllTickets } from '../services/api'
+import { getPendingTickets, approveTicket, rejectTicket, getUsers, updateUserRole, getAuditLogs, destroyEnvironment, getAllTickets, getPortalStats } from '../services/api'
 
 const TAB_PENDING = 'pending'
 const TAB_ACTIVE = 'active'
 const TAB_USERS = 'users'
 const TAB_AUDIT = 'audit'
+const TAB_STATS = 'stats'
 
 export default function Admin() {
   const [tab, setTab] = useState(TAB_PENDING)
@@ -13,6 +14,7 @@ export default function Admin() {
   const [activeTickets, setActiveTickets] = useState([])
   const [users, setUsers] = useState([])
   const [auditLogs, setAuditLogs] = useState([])
+  const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(null)
   const [rejectReason, setRejectReason] = useState({})
@@ -26,16 +28,18 @@ export default function Admin() {
   const fetchAll = async () => {
     setLoading(true)
     try {
-      const [pendingRes, usersRes, auditRes, activeRes] = await Promise.all([
+      const [pendingRes, usersRes, auditRes, activeRes, statsRes] = await Promise.all([
         getPendingTickets(),
         getUsers(),
         getAuditLogs({ limit: 20 }),
-        getAllTickets({ status: 'active' })
+        getAllTickets({ status: 'active' }),
+        getPortalStats()
       ])
       setPending(pendingRes.data)
       setUsers(usersRes.data)
       setAuditLogs(auditRes.data)
       setActiveTickets(activeRes.data)
+      setStats(statsRes.data)
     } catch (err) {
       setError('Failed to load data')
     } finally {
@@ -107,6 +111,7 @@ export default function Admin() {
     { id: TAB_ACTIVE, label: `Active (${activeTickets.length})` },
     { id: TAB_USERS, label: `Users (${users.length})` },
     { id: TAB_AUDIT, label: 'Audit Log' },
+    { id: TAB_STATS, label: 'Cost & Stats' },
   ]
 
   if (loading) {
@@ -371,6 +376,75 @@ export default function Admin() {
           </div>
         )}
 
+
+        {/* Stats Tab */}
+        {tab === TAB_STATS && (
+          <div className="space-y-6">
+            {/* Overview cards */}
+            {stats && (
+              <>
+                <div className="grid grid-cols-4 gap-4">
+                  {[
+                    { label: 'Total Requests', value: stats.overview.total_tickets, color: 'text-gray-900' },
+                    { label: 'Active Environments', value: stats.overview.active, color: 'text-green-600' },
+                    { label: 'Total Cost (all time)', value: `$${stats.overview.total_cost_usd.toFixed(2)}`, color: 'text-blue-600' },
+                    { label: 'Active Cost', value: `$${stats.overview.active_cost_usd.toFixed(2)}`, color: 'text-purple-600' },
+                  ].map(stat => (
+                    <div key={stat.label} className="bg-white rounded-xl border border-gray-200 p-5">
+                      <p className="text-sm text-gray-500">{stat.label}</p>
+                      <p className={`text-3xl font-bold mt-1 ${stat.color}`}>{stat.value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
+                  {[
+                    { label: 'Pending', value: stats.overview.pending, color: 'bg-yellow-100 text-yellow-800' },
+                    { label: 'Expired', value: stats.overview.expired, color: 'bg-gray-100 text-gray-800' },
+                    { label: 'Rejected', value: stats.overview.rejected, color: 'bg-red-100 text-red-800' },
+                  ].map(stat => (
+                    <div key={stat.label} className="bg-white rounded-xl border border-gray-200 p-5 flex items-center justify-between">
+                      <p className="text-sm text-gray-500">{stat.label}</p>
+                      <span className={`text-sm font-semibold px-3 py-1 rounded-full ${stat.color}`}>{stat.value}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Per user breakdown */}
+                <div className="bg-white rounded-xl border border-gray-200">
+                  <div className="px-6 py-4 border-b border-gray-100">
+                    <h2 className="text-base font-semibold text-gray-900">Cost by User</h2>
+                  </div>
+                  <table className="w-full">
+                    <thead className="bg-gray-50 border-b border-gray-100">
+                      <tr>
+                        {['User', 'Department', 'Total Requests', 'Total Cost'].map(h => (
+                          <th key={h} className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {stats.per_user.map(u => (
+                        <tr key={u.email} className="hover:bg-gray-50">
+                          <td className="px-6 py-4">
+                            <p className="text-sm font-medium text-gray-900">{u.full_name}</p>
+                            <p className="text-xs text-gray-400">{u.email}</p>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-gray-500">{u.department || '—'}</td>
+                          <td className="px-6 py-4 text-sm text-gray-900">{u.total_tickets}</td>
+                          <td className="px-6 py-4">
+                            <span className="text-sm font-semibold text-blue-600">${u.total_cost_usd.toFixed(2)}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+            {!stats && <p className="text-gray-400 text-sm">Loading stats...</p>}
+          </div>
+        )}
       </div>
     </div>
   )

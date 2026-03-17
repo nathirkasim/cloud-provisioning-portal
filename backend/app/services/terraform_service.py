@@ -36,7 +36,7 @@ def run_terraform_command(command: list, cwd: str = None) -> dict:
             "returncode": -1
         }
 
-def provision_environment(ticket_number: str, template_type: str, environment_name: str, owner_email: str, duration_days: int, db_password: str = "Portal@123") -> dict:
+def provision_environment(ticket_number: str, template_type: str, environment_name: str, owner_email: str, duration_days: int, department: str = "Engineering", db_password: str = "Portal@123") -> dict:
     """Run terraform apply for a ticket — provisions real infrastructure."""
 
     vars = [

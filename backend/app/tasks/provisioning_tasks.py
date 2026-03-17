@@ -7,7 +7,7 @@ from app.models.user import User  # needed to resolve FK relationships
 from app.models.quota import ResourceQuota  # needed to resolve FK relationships
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=60)
-def provision_environment_task(self, ticket_id: int, ticket_number: str, template_type: str, owner_email: str, duration_days: int):
+def provision_environment_task(self, ticket_id: int, ticket_number: str, template_type: str, owner_email: str, duration_days: int, department: str = "Engineering"):
     db = SessionLocal()
     try:
         print(f"[TASK] Starting provisioning for {ticket_number}...")
@@ -16,7 +16,8 @@ def provision_environment_task(self, ticket_id: int, ticket_number: str, templat
             template_type=template_type,
             environment_name=f"env-{ticket_number.lower()}",
             owner_email=owner_email,
-            duration_days=duration_days
+            duration_days=duration_days,
+            department=department
         )
         ticket = db.query(TicketRequest).filter(TicketRequest.id == ticket_id).first()
         if result["success"]:

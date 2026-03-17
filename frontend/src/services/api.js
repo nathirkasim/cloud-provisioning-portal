@@ -82,3 +82,11 @@ export default api
 // Admin — get all tickets across all users
 export const getAllTickets = (params) =>
   api.get('/approvals/all', { params })
+
+// Quota
+export const getQuota = () =>
+  api.get('/tickets/quota')
+
+// Portal stats
+export const getPortalStats = () =>
+  api.get('/approvals/stats')

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import Navbar from '../components/Navbar'
-import { getMyTickets, getTemplates, createTicket, estimateCost } from '../services/api'
+import { getMyTickets, getTemplates, createTicket, estimateCost, getQuota } from '../services/api'
 
 const STATUS_COLORS = {
   pending_approval: 'bg-yellow-100 text-yellow-800',
@@ -36,6 +36,7 @@ export default function Dashboard() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [quota, setQuota] = useState(null)
   const pollRef = useRef(null)
 
   useEffect(() => {
@@ -66,12 +67,14 @@ export default function Dashboard() {
 
   const fetchData = async () => {
     try {
-      const [ticketsRes, templatesRes] = await Promise.all([
+      const [ticketsRes, templatesRes, quotaRes] = await Promise.all([
         getMyTickets(),
-        getTemplates()
+        getTemplates(),
+        getQuota()
       ])
       setTickets(ticketsRes.data)
       setTemplates(templatesRes.data)
+      setQuota(quotaRes.data)
     } catch (err) {
       setError('Failed to load data')
     } finally {
@@ -159,17 +162,37 @@ export default function Dashboard() {
 
         {/* Stats */}
         <div className="grid grid-cols-4 gap-4 mb-8">
-          {[
-            { label: 'Total Requests', value: stats.total, color: 'text-gray-900' },
-            { label: 'Active', value: stats.active, color: 'text-green-600' },
-            { label: 'Pending', value: stats.pending, color: 'text-yellow-600' },
-            { label: 'Provisioning', value: stats.provisioning, color: 'text-purple-600' },
-          ].map(stat => (
-            <div key={stat.label} className="bg-white rounded-xl border border-gray-200 p-5">
-              <p className="text-sm text-gray-500">{stat.label}</p>
-              <p className={`text-3xl font-bold mt-1 ${stat.color}`}>{stat.value}</p>
-            </div>
-          ))}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <p className="text-sm text-gray-500">Environments Used</p>
+            <p className="text-3xl font-bold mt-1 text-gray-900">
+              {quota ? `${quota.active_environments}/${quota.max_environments}` : stats.total}
+            </p>
+            {quota && (
+              <div className="mt-2 bg-gray-100 rounded-full h-1.5">
+                <div
+                  className="bg-blue-500 h-1.5 rounded-full transition-all"
+                  style={{ width: `${Math.min((quota.active_environments / quota.max_environments) * 100, 100)}%` }}
+                />
+              </div>
+            )}
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <p className="text-sm text-gray-500">Budget Used</p>
+            <p className="text-3xl font-bold mt-1 text-green-600">
+              ${quota ? quota.monthly_cost_usd.toFixed(2) : '0.00'}
+            </p>
+            {quota && (
+              <p className="text-xs text-gray-400 mt-1">of ${quota.monthly_budget_usd.toFixed(0)} limit</p>
+            )}
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <p className="text-sm text-gray-500">Pending Approval</p>
+            <p className="text-3xl font-bold mt-1 text-yellow-600">{stats.pending}</p>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <p className="text-sm text-gray-500">Provisioning</p>
+            <p className="text-3xl font-bold mt-1 text-purple-600">{stats.provisioning}</p>
+          </div>
         </div>
 
         {/* Request Form */}

@@ -36,3 +36,9 @@ variable "aws_region" {
   type        = string
   default     = "ap-south-1"
 }
+
+variable "department" {
+  description = "Department of the requesting user"
+  type        = string
+  default     = "Engineering"
+}

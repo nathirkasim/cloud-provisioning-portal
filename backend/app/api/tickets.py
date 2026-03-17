@@ -102,9 +102,37 @@ def create_ticket(ticket: TicketCreate, request: Request, db: Session = Depends(
 def get_my_tickets(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     return db.query(TicketRequest).filter(TicketRequest.user_id == current_user["id"]).order_by(TicketRequest.created_at.desc()).all()
 
+
+@router.get("/quota")
+def get_my_quota(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    user_id = current_user["id"]
+    quota = db.query(ResourceQuota).filter(ResourceQuota.user_id == user_id).first()
+    
+    active_statuses = ["pending_approval", "approved", "provisioning", "active"]
+    active_count = db.query(TicketRequest).filter(
+        TicketRequest.user_id == user_id,
+        TicketRequest.status.in_(active_statuses)
+    ).count()
+
+    from sqlalchemy import func
+    monthly_cost = db.query(func.sum(TicketRequest.estimated_cost_usd)).filter(
+        TicketRequest.user_id == user_id,
+        TicketRequest.status.in_(active_statuses)
+    ).scalar() or 0
+
+    return {
+        "active_environments": active_count,
+        "max_environments": quota.environments_limit if quota else 3,
+        "monthly_cost_usd": float(monthly_cost),
+        "monthly_budget_usd": float(quota.monthly_budget_usd) if quota else 100.0,
+        "environments_remaining": (quota.environments_limit if quota else 3) - active_count,
+        "budget_remaining": float(quota.monthly_budget_usd if quota else 100) - float(monthly_cost)
+    }
+
 @router.get("/{ticket_id}", response_model=TicketResponse)
 def get_ticket(ticket_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     ticket = db.query(TicketRequest).filter(TicketRequest.id == ticket_id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
     return ticket
+

@@ -45,6 +45,11 @@ variable "aws_region" {
   type        = string
   default     = "ap-south-1"
 }
+variable "department" {
+  description = "Department of requesting user"
+  type        = string
+  default     = "Engineering"
+}
 
 module "web_app" {
   source           = "./modules/web_app"
