@@ -1,14 +1,16 @@
 from celery import Celery
 from celery.schedules import crontab
+import os
 
-# Redis is both the broker (task queue) and backend (result storage)
+# Redis URL from environment variable (Railway) or localhost for dev
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+
 celery_app = Celery(
     "cloud_portal",
-    broker="redis://localhost:6379/0",
-    backend="redis://localhost:6379/0",
+    broker=REDIS_URL,
+    backend=REDIS_URL,
     include=["app.tasks.provisioning_tasks"]
 )
-
 celery_app.conf.update(
     task_serializer="json",
     accept_content=["json"],
@@ -19,12 +21,10 @@ celery_app.conf.update(
     broker_connection_retry_on_startup=True,
     task_acks_late=True,
     worker_prefetch_multiplier=1,
-
-    # Celery Beat schedule — runs auto_expire_environments every hour
     beat_schedule={
         "auto-expire-environments": {
             "task": "app.tasks.provisioning_tasks.auto_expire_environments",
-            "schedule": crontab(minute=0, hour="*"),  # Every hour on the hour
+            "schedule": crontab(minute=0, hour="*"),
         }
     }
 )
