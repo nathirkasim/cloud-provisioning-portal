@@ -1,6 +1,6 @@
 output "db_instance_id" {
   description = "RDS instance ID"
-  value       = aws_db_instance.database.id
+  value       = aws_db_instance.database.identifier
 }
 
 output "db_endpoint" {

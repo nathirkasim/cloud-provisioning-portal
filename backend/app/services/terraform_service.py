@@ -21,23 +21,21 @@ def run_terraform_command(command: list, cwd: str = None) -> dict:
             "stderr": result.stderr,
             "returncode": result.returncode
         }
-    except subprocess.TimeoutExpired:
-        return {
-            "success": False,
-            "stdout": "",
-            "stderr": "Terraform command timed out after 5 minutes",
-            "returncode": -1
-        }
     except Exception as e:
-        return {
-            "success": False,
-            "stdout": "",
-            "stderr": str(e),
-            "returncode": -1
-        }
+        return {"success": False, "stdout": "", "stderr": str(e), "returncode": -1}
 
-def provision_environment(ticket_number: str, template_type: str, environment_name: str, owner_email: str, duration_days: int, department: str = "Engineering", db_password: str = "Portal@123") -> dict:
+def prepare_workspace(ticket_number: str):
+    """Ensure a dedicated workspace exists for the ticket and select it."""
+    # Create the workspace (ignores error if it already exists)
+    run_terraform_command(["terraform", "workspace", "new", ticket_number])
+    # Select the specific workspace for this ticket
+    run_terraform_command(["terraform", "workspace", "select", ticket_number])
+
+def provision_environment(ticket_number: str, template_type: str, environment_name: str, owner_email: str, duration_days: int, department: str = "Engineering", db_password: str = "Portal123") -> dict:
     """Run terraform apply for a ticket — provisions real infrastructure."""
+    
+    # Switch to ticket-specific workspace to isolate state 
+    prepare_workspace(ticket_number)
 
     vars = [
         f"-var=template_type={template_type}",
@@ -50,8 +48,7 @@ def provision_environment(ticket_number: str, template_type: str, environment_na
     if template_type == "database":
         vars.append(f"-var=db_password={db_password}")
 
-    # Run terraform apply
-    print(f"[TERRAFORM] Starting provisioning for {ticket_number}...")
+    print(f"[TERRAFORM] Starting provisioning for {ticket_number} in its own workspace...")
     result = run_terraform_command(
         ["terraform", "apply", "-auto-approve"] + vars
     )
@@ -60,13 +57,8 @@ def provision_environment(ticket_number: str, template_type: str, environment_na
         print(f"[TERRAFORM] Apply failed for {ticket_number}: {result['stderr']}")
         return {"success": False, "error": result["stderr"]}
 
-    print(f"[TERRAFORM] Apply complete for {ticket_number}")
-
-    # Get outputs
-    output_result = run_terraform_command(
-        ["terraform", "output", "-json"]
-    )
-
+    # Get outputs for this specific workspace
+    output_result = run_terraform_command(["terraform", "output", "-json"])
     outputs = {}
     if output_result["success"] and output_result["stdout"].strip():
         try:
@@ -75,14 +67,13 @@ def provision_environment(ticket_number: str, template_type: str, environment_na
         except json.JSONDecodeError:
             pass
 
-    return {
-        "success": True,
-        "outputs": outputs,
-        "ticket_number": ticket_number
-    }
+    return {"success": True, "outputs": outputs, "ticket_number": ticket_number}
 
 def destroy_environment(ticket_number: str, template_type: str, environment_name: str, owner_email: str, duration_days: int) -> dict:
     """Run terraform destroy for a ticket — tears down infrastructure."""
+    
+    # Ensure we are in the correct workspace before destroying
+    prepare_workspace(ticket_number)
 
     vars = [
         f"-var=template_type={template_type}",
@@ -100,6 +91,10 @@ def destroy_environment(ticket_number: str, template_type: str, environment_name
     if not result["success"]:
         print(f"[TERRAFORM] Destroy failed for {ticket_number}: {result['stderr']}")
         return {"success": False, "error": result["stderr"]}
+
+    # Clean up: switch back to default and remove the ticket workspace
+    run_terraform_command(["terraform", "workspace", "select", "default"])
+    run_terraform_command(["terraform", "workspace", "delete", ticket_number])
 
     print(f"[TERRAFORM] Destroy complete for {ticket_number}")
     return {"success": True, "ticket_number": ticket_number}

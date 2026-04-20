@@ -98,6 +98,10 @@ output "database_endpoint" {
   value = var.template_type == "database" ? module.database[0].db_endpoint : null
 }
 
+output "db_instance_id" {
+  value = var.template_type == "database" ? module.database[0].db_instance_id : null
+}
+
 output "serverless_api_endpoint" {
   value = var.template_type == "serverless" ? module.serverless[0].api_endpoint : null
 }

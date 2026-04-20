@@ -5,6 +5,7 @@ from app.database import SessionLocal
 from app.models.ticket import TicketRequest
 from app.models.user import User  # needed to resolve FK relationships
 from app.models.quota import ResourceQuota  # needed to resolve FK relationships
+from app.utils.aws_links import get_aws_console_url  # New utility
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=60)
 def provision_environment_task(self, ticket_id: int, ticket_number: str, template_type: str, owner_email: str, duration_days: int, department: str = "Engineering"):
@@ -19,14 +20,31 @@ def provision_environment_task(self, ticket_id: int, ticket_number: str, templat
             duration_days=duration_days,
             department=department
         )
+        
         ticket = db.query(TicketRequest).filter(TicketRequest.id == ticket_id).first()
+        
         if result["success"]:
+            # 'outputs' is a clean dict like {'web_app_instance_id': 'i-123...'}
             outputs = result.get("outputs", {})
             ticket.status = "active"
             ticket.provisioning_output = outputs
-            ticket.environment_url = outputs.get("web_app_url") or outputs.get("serverless_api_endpoint")
-            ticket.instance_id = outputs.get("web_app_instance_id") or outputs.get("db_instance_id") or outputs.get("function_name")
+            
+            # 1. Directly get the ID string from the dictionary
+            raw_id = (
+                outputs.get("web_app_instance_id") or 
+                outputs.get("db_instance_id") or 
+                outputs.get("function_name")
+            )
+            ticket.instance_id = raw_id
+
+            # 2. Generate the AWS Deep Link
+            aws_console_link = get_aws_console_url(template_type, raw_id)
+
+            # 3. Set the redirect URL (Console link prioritized, then public IP)
+            ticket.environment_url = aws_console_link or outputs.get("web_app_url") or outputs.get("serverless_api_endpoint")
+            
             db.commit()
+
             log_action(
                 db=db,
                 action="ticket.provisioned",
@@ -34,8 +52,10 @@ def provision_environment_task(self, ticket_id: int, ticket_number: str, templat
                 resource_id=ticket_number,
                 details={"environment_url": ticket.environment_url, "instance_id": ticket.instance_id}
             )
+            
             print(f"[TASK] Provisioning success for {ticket_number} — {ticket.environment_url}")
             return {"success": True, "ticket_number": ticket_number, "url": ticket.environment_url}
+        
         else:
             ticket.status = "approved"
             db.commit()
@@ -48,6 +68,7 @@ def provision_environment_task(self, ticket_id: int, ticket_number: str, templat
             )
             print(f"[TASK] Provisioning failed for {ticket_number}: {result.get('error')}")
             raise self.retry(exc=Exception(result.get("error")))
+
     except Exception as exc:
         print(f"[TASK] Exception for {ticket_number}: {str(exc)}")
         raise
@@ -87,11 +108,6 @@ def destroy_environment_task(self, ticket_id: int, ticket_number: str, template_
 
 @celery_app.task
 def auto_expire_environments():
-    """
-    Periodic task run by Celery Beat every hour.
-    Finds all active environments whose duration has expired
-    and triggers destroy_environment_task for each one.
-    """
     from datetime import datetime, timezone, timedelta
     from app.models.ticket import EnvironmentTemplate
 
@@ -111,8 +127,6 @@ def auto_expire_environments():
             expiry_time = created_at + timedelta(days=ticket.duration_days)
 
             if now >= expiry_time:
-                print(f"[EXPIRY] Environment {ticket.ticket_number} expired — triggering destroy...")
-
                 template = db.query(EnvironmentTemplate).filter(
                     EnvironmentTemplate.id == ticket.template_id
                 ).first()
@@ -120,18 +134,6 @@ def auto_expire_environments():
                 if template:
                     ticket.status = "expired"
                     db.commit()
-
-                    log_action(
-                        db=db,
-                        action="ticket.expired",
-                        resource_type="ticket",
-                        resource_id=ticket.ticket_number,
-                        details={
-                            "reason": "duration_days exceeded",
-                            "duration_days": ticket.duration_days,
-                            "expired_at": now.isoformat()
-                        }
-                    )
 
                     destroy_environment_task.delay(
                         ticket_id=ticket.id,

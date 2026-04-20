@@ -15,6 +15,9 @@ RUN curl -fsSL https://releases.hashicorp.com/terraform/1.6.6/terraform_1.6.6_li
     && mv terraform /usr/local/bin/ \
     && rm terraform.zip
 
+# Fix Python Path - IMPORTANT
+ENV PYTHONPATH=/app
+
 # Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
@@ -22,8 +25,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy app code
 COPY . .
 
+# Make scripts executable
+RUN chmod +x start.sh
+
 # Expose port
 EXPOSE 8000
 
-# Start command
-CMD ["python", "start.py"]
+# Default command (will be overridden by docker-compose for worker/beat)
+CMD ["/bin/bash", "start.sh"]

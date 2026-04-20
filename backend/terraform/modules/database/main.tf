@@ -31,9 +31,9 @@ resource "aws_security_group" "db_sg" {
 
 # RDS PostgreSQL instance — db.t3.micro is Free Tier eligible
 resource "aws_db_instance" "database" {
-  identifier        = "${var.ticket_number}-db"
+  identifier        = "${lower(var.ticket_number)}-db"
   engine            = "postgres"
-  engine_version    = "15.4"
+  engine_version    = "15.12"
   instance_class    = var.instance_class
   allocated_storage = var.storage_gb
   storage_type      = "gp2"
