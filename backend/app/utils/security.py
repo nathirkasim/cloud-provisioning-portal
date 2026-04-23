@@ -29,6 +29,12 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
         user_id = payload.get("sub")
         if user_id is None:
             raise HTTPException(status_code=401, detail="Invalid token")
-        return {"id": int(user_id), "email": payload.get("email"), "role": payload.get("role")}
+        return {
+            "id": int(user_id),
+            "email": payload.get("email"),
+            "role": payload.get("role"),
+            "aws_access_key": payload.get("aws_access_key"),
+            "aws_secret_key": payload.get("aws_secret_key")
+        } 
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")

@@ -37,6 +37,9 @@ export const register = (data) =>
 export const getMe = () =>
   api.get('/auth/me')
 
+export const iamLogin = (accessKey, secretKey) =>
+  api.post('/auth/iam-login', { access_key: accessKey, secret_key: secretKey })
+
 // Tickets
 export const getTemplates = () =>
   api.get('/tickets/templates')
@@ -90,3 +93,6 @@ export const getQuota = () =>
 // Portal stats
 export const getPortalStats = () =>
   api.get('/approvals/stats')
+
+export const getConsoleLink = (ticketId) =>
+  api.get(`/tickets/${ticketId}/console-link`);

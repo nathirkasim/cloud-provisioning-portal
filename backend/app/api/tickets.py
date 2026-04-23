@@ -9,6 +9,7 @@ from app.services.cost_estimator import CostEstimator
 from app.services.email_service import send_approval_request_email
 from app.services.audit_service import log_action
 from app.utils.security import get_current_user
+from app.utils.aws_console import generate_federated_console_url
 
 router = APIRouter(prefix="/tickets", tags=["Tickets"])
 
@@ -102,12 +103,11 @@ def create_ticket(ticket: TicketCreate, request: Request, db: Session = Depends(
 def get_my_tickets(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     return db.query(TicketRequest).filter(TicketRequest.user_id == current_user["id"]).order_by(TicketRequest.created_at.desc()).all()
 
-
 @router.get("/quota")
 def get_my_quota(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     user_id = current_user["id"]
     quota = db.query(ResourceQuota).filter(ResourceQuota.user_id == user_id).first()
-    
+
     active_statuses = ["pending_approval", "approved", "provisioning", "active"]
     active_count = db.query(TicketRequest).filter(
         TicketRequest.user_id == user_id,
@@ -134,5 +134,45 @@ def get_ticket(ticket_id: int, db: Session = Depends(get_db), current_user=Depen
     ticket = db.query(TicketRequest).filter(TicketRequest.id == ticket_id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
+    if ticket.user_id != current_user["id"] and current_user["role"] not in ["admin", "approver"]:
+        raise HTTPException(status_code=403, detail="Access denied")
     return ticket
 
+# --- NEW: GENERATE AWS CONSOLE MAGIC LINK (DEEP LINK VERSION) ---
+@router.get("/{ticket_id}/console-link")
+def get_ticket_console_link(
+    ticket_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Generate a one-click AWS Console deep link for the provisioned resource."""
+
+    # 1. Fetch the ticket and its associated template
+    ticket = db.query(TicketRequest).filter(TicketRequest.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    template = db.query(EnvironmentTemplate).filter(EnvironmentTemplate.id == ticket.template_id).first()
+
+    # 2. Check if the user is authenticated via IAM
+    aws_access_key = current_user.get("aws_access_key")
+    aws_secret_key = current_user.get("aws_secret_key")
+
+    if not aws_access_key or not aws_secret_key:
+        raise HTTPException(
+            status_code=403,
+            detail="AWS Console access requires an active IAM Login session."
+    )
+    # 3. Call the utility with Deep Link parameters
+    # resource_id is pulled from 'ticket.instance_id' which was saved by your worker
+    magic_url = generate_federated_console_url(
+        access_key=aws_access_key,
+        secret_key=aws_secret_key,
+        template_type=template.template_type if template else None,
+        resource_id=ticket.instance_id  # CHANGED: Using the correct field name from your model
+    )
+
+    if not magic_url:
+        raise HTTPException(status_code=500, detail="Error generating AWS session.")
+
+    return {"url": magic_url}

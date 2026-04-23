@@ -1,8 +1,9 @@
+import boto3
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
-from app.schemas.user import UserCreate, UserLogin, UserResponse, Token
+from app.schemas.user import UserCreate, UserLogin, UserResponse, Token, IAMLogin
 from app.utils.security import get_password_hash, verify_password, create_access_token, get_current_user
 from app.services.audit_service import log_action
 
@@ -57,6 +58,73 @@ def login(credentials: UserLogin, request: Request, db: Session = Depends(get_db
         ip_address=request.client.host
     )
     return {"access_token": access_token, "token_type": "bearer"}
+
+@router.post("/iam-login", response_model=Token)
+def iam_login(credentials: IAMLogin, request: Request, db: Session = Depends(get_db)):
+    """
+    Authenticates an AWS IAM user via STS and creates a federated portal session.
+    Keys are embedded in the JWT — never stored in the database.
+    """
+    try:
+        # 1. Verification handshake with AWS
+        sts = boto3.client(
+            'sts',
+            aws_access_key_id=credentials.access_key,
+            aws_secret_access_key=credentials.secret_key,
+            region_name="ap-south-1"
+        )
+        identity = sts.get_caller_identity()
+        arn = identity.get("Arn")
+        account_id = identity.get("Account")
+
+        # 2. Identity mapping: ARN/Account ID -> local shadow user
+        shadow_email = f"aws-{account_id}-{arn.split('/')[-1]}@iam.aws"
+        user = db.query(User).filter(User.email == shadow_email).first()
+
+        if not user:
+            user = User(
+                email=shadow_email,
+                full_name=f"AWS User ({arn.split('/')[-1]})",
+                password_hash="EXTERNAL_IAM_FEDERATION",
+                department="Cloud Infrastructure",
+                is_active=True
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+
+            from app.models.quota import ResourceQuota
+            quota = ResourceQuota(user_id=user.id)
+            db.add(quota)
+            db.commit()
+
+        # 3. Embed keys in JWT — keys never written to DB
+        token_data = {
+            "sub": str(user.id),
+            "email": user.email,
+            "role": user.role,
+            "aws_access_key": credentials.access_key,
+            "aws_secret_key": credentials.secret_key
+        }
+        access_token = create_access_token(token_data)
+
+        log_action(
+            db=db,
+            action="auth.iam_login",
+            resource_type="user",
+            resource_id=str(user.id),
+            user_id=user.id,
+            details={"arn": arn, "account": account_id},
+            ip_address=request.client.host
+        )
+
+        return {"access_token": access_token, "token_type": "bearer"}
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="AWS authentication failed: invalid keys or missing STS permissions."
+        )
 
 @router.get("/me", response_model=UserResponse)
 def get_current_user_info(current_user=Depends(get_current_user), db: Session = Depends(get_db)):

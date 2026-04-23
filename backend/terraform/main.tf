@@ -105,3 +105,7 @@ output "db_instance_id" {
 output "serverless_api_endpoint" {
   value = var.template_type == "serverless" ? module.serverless[0].api_endpoint : null
 }
+
+output "function_name" {
+  value = var.template_type == "serverless" ? module.serverless[0].function_name : null
+}

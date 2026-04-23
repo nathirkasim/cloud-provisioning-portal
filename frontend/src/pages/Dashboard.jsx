@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import Navbar from '../components/Navbar'
-import { getMyTickets, getTemplates, createTicket, estimateCost, getQuota } from '../services/api'
+// Added getConsoleLink to imports
+import { getMyTickets, getTemplates, createTicket, estimateCost, getQuota, getConsoleLink } from '../services/api'
 
 const STATUS_COLORS = {
   pending_approval: 'bg-yellow-100 text-yellow-800',
@@ -106,6 +107,17 @@ export default function Dashboard() {
     }
   }
 
+  // New: Handle Magic Link generation
+  const handleOpenConsole = async (ticketId) => {
+    try {
+      const res = await getConsoleLink(ticketId);
+      window.open(res.data.url, '_blank');
+    } catch (err) {
+      setError(err.response?.data?.detail || "IAM session required for console access.");
+      setTimeout(() => setError(''), 5000);
+    }
+  };
+
   const stats = {
     total: tickets.length,
     active: tickets.filter(t => t.status === 'active').length,
@@ -122,232 +134,191 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 font-sans">
       <Navbar />
       <div className="max-w-6xl mx-auto px-6 py-8">
 
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">My Environments</h1>
-            <p className="text-gray-500 text-sm mt-1">Welcome back, {user?.full_name}</p>
+            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Cloud Infrastructure</h1>
+            <p className="text-gray-500 text-sm mt-1">Operator: {user?.full_name}</p>
           </div>
           <button
             onClick={() => setShowForm(!showForm)}
-            className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2.5 rounded-lg transition-colors"
+            className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold px-5 py-2.5 rounded-xl transition-all shadow-md active:scale-95"
           >
-            {showForm ? 'Cancel' : '+ Request Environment'}
+            {showForm ? 'Cancel Request' : '+ New Environment'}
           </button>
         </div>
 
         {/* Alerts */}
-        {success && (
-          <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-6 text-sm">
-            {success}
-          </div>
-        )}
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 text-sm">
-            {error}
-          </div>
-        )}
+        {success && <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-6 text-sm font-medium">{success}</div>}
+        {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 text-sm font-medium">{error}</div>}
 
         {/* Auto-refresh notice */}
         {tickets.some(t => ['provisioning', 'approved'].includes(t.status)) && (
-          <div className="bg-purple-50 border border-purple-200 text-purple-700 px-4 py-3 rounded-lg mb-6 text-sm flex items-center gap-2">
-            <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-purple-600"></div>
-            Environment is being provisioned — page auto-refreshes every 10 seconds...
+          <div className="bg-blue-50 border border-blue-100 text-blue-700 px-4 py-3 rounded-lg mb-6 text-xs flex items-center gap-3 font-bold uppercase tracking-wider">
+            <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
+            Syncing with Cloud Provider — Page auto-refreshes...
           </div>
         )}
 
-        {/* Stats */}
-        <div className="grid grid-cols-4 gap-4 mb-8">
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <p className="text-sm text-gray-500">Environments Used</p>
-            <p className="text-3xl font-bold mt-1 text-gray-900">
+        {/* Stats Grid */}
+        <div className="grid grid-cols-4 gap-6 mb-8">
+          <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Resources</p>
+            <p className="text-3xl font-black mt-2 text-gray-900">
               {quota ? `${quota.active_environments}/${quota.max_environments}` : stats.total}
             </p>
-            {quota && (
-              <div className="mt-2 bg-gray-100 rounded-full h-1.5">
-                <div
-                  className="bg-blue-500 h-1.5 rounded-full transition-all"
-                  style={{ width: `${Math.min((quota.active_environments / quota.max_environments) * 100, 100)}%` }}
-                />
-              </div>
-            )}
           </div>
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <p className="text-sm text-gray-500">Budget Used</p>
-            <p className="text-3xl font-bold mt-1 text-green-600">
+          <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Monthly Burn</p>
+            <p className="text-3xl font-black mt-2 text-green-600">
               ${quota ? quota.monthly_cost_usd.toFixed(2) : '0.00'}
             </p>
-            {quota && (
-              <p className="text-xs text-gray-400 mt-1">of ${quota.monthly_budget_usd.toFixed(0)} limit</p>
-            )}
           </div>
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <p className="text-sm text-gray-500">Pending Approval</p>
-            <p className="text-3xl font-bold mt-1 text-yellow-600">{stats.pending}</p>
+          <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Pending</p>
+            <p className="text-3xl font-black mt-2 text-yellow-500">{stats.pending}</p>
           </div>
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <p className="text-sm text-gray-500">Provisioning</p>
-            <p className="text-3xl font-bold mt-1 text-purple-600">{stats.provisioning}</p>
+          <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Active</p>
+            <p className="text-3xl font-black mt-2 text-blue-600">{stats.active}</p>
           </div>
         </div>
 
         {/* Request Form */}
         {showForm && (
-          <div className="bg-white rounded-xl border border-gray-200 p-6 mb-8">
-            <h2 className="text-lg font-semibold text-gray-900 mb-6">New Environment Request</h2>
-            <form onSubmit={handleSubmit} className="space-y-5">
-              <div className="grid grid-cols-2 gap-5">
+          <div className="bg-white rounded-2xl border border-gray-200 p-8 mb-8 shadow-lg animate-in fade-in slide-in-from-top-4 duration-300">
+            <h2 className="text-xl font-bold text-gray-900 mb-6">Provision New Resource</h2>
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="grid grid-cols-2 gap-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Environment Type</label>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Service Template</label>
                   <select
                     value={form.template_id}
                     onChange={e => setForm({ ...form, template_id: e.target.value })}
                     required
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 text-sm outline-none"
                   >
-                    <option value="">Select a template...</option>
+                    <option value="">Select template...</option>
                     {templates.map(t => (
                       <option key={t.id} value={t.id}>{t.name} — {t.description}</option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Duration (days)</label>
+                  <label className="block text-xs font-bold text-gray-500 uppercase mb-2">TTL (Days)</label>
                   <input
                     type="number"
-                    min="1"
-                    max="30"
+                    min="1" max="30"
                     value={form.duration_days}
                     onChange={e => setForm({ ...form, duration_days: e.target.value })}
                     required
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 text-sm outline-none"
                   />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Deployment Title</label>
                 <input
                   type="text"
                   value={form.title}
                   onChange={e => setForm({ ...form, title: e.target.value })}
                   required
-                  placeholder="e.g. Development environment for feature X"
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  placeholder="e.g. Production RDS Migration Test"
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 text-sm outline-none"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Justification</label>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Business Justification</label>
                 <textarea
                   value={form.justification}
                   onChange={e => setForm({ ...form, justification: e.target.value })}
                   required
                   rows={3}
-                  placeholder="Why do you need this environment?"
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm resize-none"
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 text-sm outline-none resize-none"
                 />
               </div>
 
               {estimate && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <p className="text-sm font-medium text-blue-800">Cost Estimate</p>
-                  <div className="flex gap-6 mt-2">
-                    <div>
-                      <p className="text-xs text-blue-600">Total Cost</p>
-                      <p className="text-lg font-bold text-blue-900">${estimate.estimated_total_cost}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-blue-600">Monthly Rate</p>
-                      <p className="text-lg font-bold text-blue-900">${estimate.estimated_monthly_cost}/mo</p>
-                    </div>
-                    {estimate.free_tier_eligible && (
-                      <div className="flex items-center">
-                        <span className="bg-green-100 text-green-700 text-xs font-medium px-2.5 py-1 rounded-full">Free Tier Eligible</span>
-                      </div>
-                    )}
+                <div className="bg-blue-600 rounded-2xl p-6 text-white shadow-inner">
+                  <p className="text-[10px] font-bold uppercase tracking-widest opacity-80">Projected Infrastructure Cost</p>
+                  <div className="flex items-end gap-1 mt-1">
+                    <span className="text-3xl font-black">${estimate.estimated_monthly_cost}</span>
+                    <span className="text-xs mb-1 opacity-80">/ month</span>
                   </div>
                 </div>
               )}
 
-              <div className="flex gap-3 pt-2">
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm font-semibold px-6 py-2.5 rounded-lg transition-colors"
-                >
-                  {submitting ? 'Submitting...' : 'Submit Request'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowForm(false)}
-                  className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-semibold px-6 py-2.5 rounded-lg transition-colors"
-                >
-                  Cancel
+              <div className="flex gap-4 pt-4">
+                <button type="submit" disabled={submitting} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all active:scale-95 disabled:opacity-50">
+                  {submitting ? 'Initializing...' : 'Confirm Deployment'}
                 </button>
               </div>
             </form>
           </div>
         )}
 
-        {/* Tickets Table */}
-        <div className="bg-white rounded-xl border border-gray-200">
-          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-            <h2 className="text-base font-semibold text-gray-900">My Requests</h2>
-            <button onClick={fetchData} className="text-xs text-gray-400 hover:text-blue-600 transition-colors">
-              ↻ Refresh
-            </button>
+        {/* Requests Table */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="px-8 py-5 border-b border-gray-50 flex items-center justify-between bg-gray-50/30">
+            <h2 className="text-sm font-bold text-gray-900 uppercase tracking-widest">Active Deployments</h2>
+            <button onClick={fetchData} className="text-[10px] font-bold text-blue-600 hover:underline uppercase">Refresh Registry</button>
           </div>
-          {tickets.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-gray-400 text-sm">No environment requests yet.</p>
-              <button
-                onClick={() => setShowForm(true)}
-                className="mt-3 text-blue-600 text-sm font-medium hover:underline"
-              >
-                Create your first request
-              </button>
-            </div>
-          ) : (
+          
+          <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-100">
-                <tr>
-                  {['Ticket', 'Title', 'Type', 'Duration', 'Status', 'URL', 'Created'].map(h => (
-                    <th key={h} className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">{h}</th>
+              <thead>
+                <tr className="bg-gray-50/50">
+                  {['Ticket ID', 'Resource Name', 'Status', 'Console Access', 'Date'].map(h => (
+                    <th key={h} className="text-left px-8 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">{h}</th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+              <tbody className="divide-y divide-gray-50">
                 {tickets.map(ticket => (
-                  <tr key={ticket.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-4 text-xs font-mono text-blue-600 hover:underline cursor-pointer" onClick={() => navigate(`/tickets/${ticket.id}`)}>{ticket.ticket_number}</td>
-                    <td className="px-6 py-4 text-sm text-gray-900 max-w-xs truncate">{ticket.title}</td>
-                    <td className="px-6 py-4 text-sm text-gray-500">{TEMPLATE_NAMES[ticket.template_id] || 'Unknown'}</td>
-                    <td className="px-6 py-4 text-sm text-gray-500">{ticket.duration_days}d</td>
-                    <td className="px-6 py-4">
-                      <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${STATUS_COLORS[ticket.status]}`}>
-                        {ticket.status === 'provisioning' && (
-                          <span className="inline-block w-2 h-2 bg-purple-500 rounded-full mr-1 animate-pulse"></span>
-                        )}
+                  <tr key={ticket.id} className="hover:bg-blue-50/20 transition-colors group">
+                    <td className="px-8 py-5 text-xs font-mono font-bold text-blue-600 cursor-pointer" onClick={() => navigate(`/tickets/${ticket.id}`)}>
+                      {ticket.ticket_number}
+                    </td>
+                    <td className="px-8 py-5">
+                      <p className="text-sm font-bold text-gray-900">{ticket.title}</p>
+                      <p className="text-[10px] text-gray-400 font-medium uppercase mt-0.5">{TEMPLATE_NAMES[ticket.template_id] || 'AWS Service'}</p>
+                    </td>
+                    <td className="px-8 py-5">
+                      <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-md tracking-tighter ${STATUS_COLORS[ticket.status]}`}>
+                        {ticket.status === 'provisioning' && <span className="inline-block w-1.5 h-1.5 bg-purple-500 rounded-full mr-2 animate-ping"></span>}
                         {STATUS_LABELS[ticket.status]}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
-                      {ticket.environment_url ? (
-                        <a href={ticket.environment_url} target="_blank" rel="noreferrer"
-                          className="text-blue-600 text-xs hover:underline truncate max-w-32 block">
-                          {ticket.environment_url}
-                        </a>
-                      ) : <span className="text-gray-300 text-xs">—</span>}
+                    <td className="px-8 py-5">
+                      {ticket.status === 'active' ? (
+                        <button
+                          onClick={() => handleOpenConsole(ticket.id)}
+                          className="inline-flex items-center gap-2 bg-[#FF9900] hover:bg-[#ec8d00] text-white text-[10px] font-black px-4 py-2 rounded-lg shadow-sm transition-all active:scale-95"
+                        >
+                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M12 2L2 19h20L12 2zm0 3l7.43 13H4.57L12 5z"/>
+                          </svg>
+                          LAUNCH CONSOLE
+                        </button>
+                      ) : (
+                        <div className="flex items-center gap-2 text-gray-300">
+                           <div className="w-1.5 h-1.5 bg-gray-200 rounded-full"></div>
+                           <span className="text-[10px] font-bold italic uppercase tracking-widest">Locked</span>
+                        </div>
+                      )}
                     </td>
-                    <td className="px-6 py-4 text-xs text-gray-400">{new Date(ticket.created_at).toLocaleDateString()}</td>
+                    <td className="px-8 py-5 text-[10px] font-bold text-gray-400">
+                      {new Date(ticket.created_at).toLocaleDateString()}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          )}
+          </div>
         </div>
       </div>
     </div>

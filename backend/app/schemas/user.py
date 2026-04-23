@@ -12,6 +12,11 @@ class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
+# NEW: Schema for AWS IAM Login
+class IAMLogin(BaseModel):
+    access_key: str
+    secret_key: str
+
 class UserResponse(BaseModel):
     id: int
     email: str

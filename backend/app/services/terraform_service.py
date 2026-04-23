@@ -31,7 +31,8 @@ def prepare_workspace(ticket_number: str):
     # Select the specific workspace for this ticket
     run_terraform_command(["terraform", "workspace", "select", ticket_number])
 
-def provision_environment(ticket_number: str, template_type: str, environment_name: str, owner_email: str, duration_days: int, department: str = "Engineering", db_password: str = "Portal123") -> dict:
+def provision_environment(ticket_number: str, template_type: str, environment_name: str, owner_email: str, duration_days: int, department: str = "General", db_password: str = None) -> dict:
+
     """Run terraform apply for a ticket — provisions real infrastructure."""
     
     # Switch to ticket-specific workspace to isolate state 
@@ -46,6 +47,9 @@ def provision_environment(ticket_number: str, template_type: str, environment_na
     ]
 
     if template_type == "database":
+        if not db_password:
+            import secrets
+            db_password = secrets.token_urlsafe(16)
         vars.append(f"-var=db_password={db_password}")
 
     print(f"[TERRAFORM] Starting provisioning for {ticket_number} in its own workspace...")
