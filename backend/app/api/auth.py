@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.schemas.user import UserCreate, UserLogin, UserResponse, Token, IAMLogin
-from app.utils.security import get_password_hash, verify_password, create_access_token, get_current_user
+from app.utils.security import get_password_hash, verify_password, create_access_token, get_current_user, blocklist_token
 from app.services.audit_service import log_action
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -132,3 +132,8 @@ def get_current_user_info(current_user=Depends(get_current_user), db: Session = 
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
+
+@router.post("/logout")
+def logout(current_user=Depends(get_current_user)):
+    blocklist_token(current_user["token"])
+    return {"message": "Logged out successfully"}
