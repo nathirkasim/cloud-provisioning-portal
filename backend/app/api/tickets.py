@@ -1,3 +1,4 @@
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -54,9 +55,8 @@ def create_ticket(ticket: TicketCreate, request: Request, db: Session = Depends(
     cost_estimate = CostEstimator().estimate_cost(template.template_type, resources, ticket.duration_days)
 
     check_quota(current_user["id"], float(cost_estimate["estimated_monthly_cost"]), db)
-
-    count = db.query(TicketRequest).count()
-    ticket_number = f"TKT-2026-{count + 1:03d}"
+    
+    ticket_number = f"TKT-{uuid.uuid4().hex[:8].upper()}"
     new_ticket = TicketRequest(
         ticket_number=ticket_number,
         user_id=current_user["id"],
@@ -164,12 +164,12 @@ def get_ticket_console_link(
             detail="AWS Console access requires an active IAM Login session."
     )
     # 3. Call the utility with Deep Link parameters
-    # resource_id is pulled from 'ticket.instance_id' which was saved by your worker
+    
     magic_url = generate_federated_console_url(
         access_key=aws_access_key,
         secret_key=aws_secret_key,
         template_type=template.template_type if template else None,
-        resource_id=ticket.instance_id  # CHANGED: Using the correct field name from your model
+        resource_id=ticket.instance_id  
     )
 
     if not magic_url:
