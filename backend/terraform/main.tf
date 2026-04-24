@@ -1,4 +1,12 @@
 terraform {
+  backend "s3" {
+    bucket         = "cloud-portal-tfstate-nathirproj"
+    key            = "portal/terraform.tfstate"
+    region         = "ap-south-1"
+    dynamodb_table = "cloud-portal-tf-locks"
+    encrypt        = true
+  }
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
