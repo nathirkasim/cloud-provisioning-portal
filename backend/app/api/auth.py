@@ -6,10 +6,15 @@ from app.models.user import User
 from app.schemas.user import UserCreate, UserLogin, UserResponse, Token, IAMLogin
 from app.utils.security import get_password_hash, verify_password, create_access_token, get_current_user, blocklist_token
 from app.services.audit_service import log_action
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+limiter = Limiter(key_func=get_remote_address)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("3/minute")
 def register(user: UserCreate, request: Request, db: Session = Depends(get_db)):
     db_user = db.query(User).filter(User.email == user.email).first()
     if db_user:
@@ -40,6 +45,7 @@ def register(user: UserCreate, request: Request, db: Session = Depends(get_db)):
     return new_user
 
 @router.post("/login", response_model=Token)
+@limiter.limit("5/minute")
 def login(credentials: UserLogin, request: Request, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == credentials.email).first()
     if not user or not verify_password(credentials.password, user.password_hash):
@@ -60,6 +66,7 @@ def login(credentials: UserLogin, request: Request, db: Session = Depends(get_db
     return {"access_token": access_token, "token_type": "bearer"}
 
 @router.post("/iam-login", response_model=Token)
+@limiter.limit("5/minute")
 def iam_login(credentials: IAMLogin, request: Request, db: Session = Depends(get_db)):
     """
     Authenticates an AWS IAM user via STS and creates a federated portal session.
