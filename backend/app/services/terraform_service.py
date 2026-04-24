@@ -1,7 +1,10 @@
 import subprocess
 import json
 import os
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 TERRAFORM_DIR = Path(__file__).parent.parent.parent / "terraform"
 
@@ -13,7 +16,7 @@ def run_terraform_command(command: list, cwd: str = None) -> dict:
             cwd=cwd or str(TERRAFORM_DIR),
             capture_output=True,
             text=True,
-            timeout=300  # 5 minute timeout
+            timeout=300
         )
         return {
             "success": result.returncode == 0,
@@ -26,16 +29,12 @@ def run_terraform_command(command: list, cwd: str = None) -> dict:
 
 def prepare_workspace(ticket_number: str):
     """Ensure a dedicated workspace exists for the ticket and select it."""
-    # Create the workspace (ignores error if it already exists)
     run_terraform_command(["terraform", "workspace", "new", ticket_number])
-    # Select the specific workspace for this ticket
     run_terraform_command(["terraform", "workspace", "select", ticket_number])
 
 def provision_environment(ticket_number: str, template_type: str, environment_name: str, owner_email: str, duration_days: int, department: str = "General", db_password: str = None) -> dict:
-
     """Run terraform apply for a ticket — provisions real infrastructure."""
-    
-    # Switch to ticket-specific workspace to isolate state 
+
     prepare_workspace(ticket_number)
 
     vars = [
@@ -52,16 +51,15 @@ def provision_environment(ticket_number: str, template_type: str, environment_na
             db_password = secrets.token_urlsafe(16)
         vars.append(f"-var=db_password={db_password}")
 
-    print(f"[TERRAFORM] Starting provisioning for {ticket_number} in its own workspace...")
+    logger.info("Starting provisioning for %s in its own workspace", ticket_number)
     result = run_terraform_command(
         ["terraform", "apply", "-auto-approve"] + vars
     )
 
     if not result["success"]:
-        print(f"[TERRAFORM] Apply failed for {ticket_number}: {result['stderr']}")
+        logger.error("Apply failed for %s: %s", ticket_number, result["stderr"])
         return {"success": False, "error": result["stderr"]}
 
-    # Get outputs for this specific workspace
     output_result = run_terraform_command(["terraform", "output", "-json"])
     outputs = {}
     if output_result["success"] and output_result["stdout"].strip():
@@ -75,8 +73,7 @@ def provision_environment(ticket_number: str, template_type: str, environment_na
 
 def destroy_environment(ticket_number: str, template_type: str, environment_name: str, owner_email: str, duration_days: int) -> dict:
     """Run terraform destroy for a ticket — tears down infrastructure."""
-    
-    # Ensure we are in the correct workspace before destroying
+
     prepare_workspace(ticket_number)
 
     vars = [
@@ -87,18 +84,17 @@ def destroy_environment(ticket_number: str, template_type: str, environment_name
         f"-var=duration_days={duration_days}",
     ]
 
-    print(f"[TERRAFORM] Starting destroy for {ticket_number}...")
+    logger.info("Starting destroy for %s", ticket_number)
     result = run_terraform_command(
         ["terraform", "destroy", "-auto-approve"] + vars
     )
 
     if not result["success"]:
-        print(f"[TERRAFORM] Destroy failed for {ticket_number}: {result['stderr']}")
+        logger.error("Destroy failed for %s: %s", ticket_number, result["stderr"])
         return {"success": False, "error": result["stderr"]}
 
-    # Clean up: switch back to default and remove the ticket workspace
     run_terraform_command(["terraform", "workspace", "select", "default"])
     run_terraform_command(["terraform", "workspace", "delete", ticket_number])
 
-    print(f"[TERRAFORM] Destroy complete for {ticket_number}")
+    logger.info("Destroy complete for %s", ticket_number)
     return {"success": True, "ticket_number": ticket_number}
