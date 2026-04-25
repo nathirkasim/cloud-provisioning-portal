@@ -1,3 +1,4 @@
+import os
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -12,6 +13,8 @@ from pydantic import BaseModel
 from typing import Optional
 
 router = APIRouter(prefix="/approvals", tags=["Approvals"])
+
+AUTO_APPROVE_THRESHOLD = float(os.getenv("AUTO_APPROVE_THRESHOLD", "20.0"))
 
 class ApprovalAction(BaseModel):
     reason: Optional[str] = None
@@ -65,14 +68,13 @@ def approve_ticket(
         ip_address=request.client.host
     )
 
-    # Dispatch Celery task instead of raw thread
     provision_environment_task.delay(
         ticket_id=ticket.id,
         ticket_number=ticket.ticket_number,
         template_type=template.template_type,
         owner_email=requester.email if requester else "unknown@portal.com",
         duration_days=ticket.duration_days,
-        department=requester.department if requester else "Engineering"
+        department=requester.department if requester and requester.department else "General"
     )
 
     return {
@@ -116,29 +118,63 @@ def reject_ticket(
 @router.post("/{ticket_id}/auto-check")
 def auto_approve_check(
     ticket_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user)
 ):
     ticket = db.query(TicketRequest).filter(TicketRequest.id == ticket_id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    if float(ticket.estimated_cost_usd) < 50:
-        ticket.status = "approved"
+    if ticket.status != "pending_approval":
+        raise HTTPException(status_code=400, detail=f"Ticket is already {ticket.status}")
+
+    template = db.query(EnvironmentTemplate).filter(
+        EnvironmentTemplate.id == ticket.template_id
+    ).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    if float(ticket.estimated_cost_usd) <= AUTO_APPROVE_THRESHOLD:
+        ticket.status = "provisioning"
         db.commit()
         db.refresh(ticket)
+
         requester = db.query(User).filter(User.id == ticket.user_id).first()
         if requester:
             send_ticket_approved_email(requester.email, ticket.ticket_number, ticket.title)
+
         log_action(
             db=db,
             action="ticket.auto_approved",
             resource_type="ticket",
             resource_id=ticket.ticket_number,
             user_id=current_user["id"],
-            details={"estimated_cost": float(ticket.estimated_cost_usd)}
+            details={
+                "estimated_cost": float(ticket.estimated_cost_usd),
+                "threshold": AUTO_APPROVE_THRESHOLD
+            }
         )
-        return {"message": "Auto-approved (cost under $50)", "status": "approved"}
-    return {"message": "Manual approval required (cost over $50)", "status": "pending_approval"}
+
+        provision_environment_task.delay(
+            ticket_id=ticket.id,
+            ticket_number=ticket.ticket_number,
+            template_type=template.template_type,
+            owner_email=requester.email if requester else "unknown@portal.com",
+            duration_days=ticket.duration_days,
+            department=requester.department if requester and requester.department else "General"
+        )
+
+        return {
+            "message": f"Auto-approved (cost ${float(ticket.estimated_cost_usd):.2f} under ${AUTO_APPROVE_THRESHOLD:.2f} threshold) — provisioning queued",
+            "ticket_number": ticket.ticket_number,
+            "status": "provisioning"
+        }
+
+    return {
+        "message": f"Manual approval required (cost ${float(ticket.estimated_cost_usd):.2f} exceeds ${AUTO_APPROVE_THRESHOLD:.2f} threshold)",
+        "ticket_number": ticket.ticket_number,
+        "status": "pending_approval"
+    }
 
 @router.delete("/{ticket_id}/destroy")
 def destroy_ticket_environment(
@@ -157,7 +193,7 @@ def destroy_ticket_environment(
         EnvironmentTemplate.id == ticket.template_id
     ).first()
 
-    ticket.status = "expired"
+    ticket.status = "expiring"
     db.commit()
 
     log_action(
@@ -170,7 +206,6 @@ def destroy_ticket_environment(
         ip_address=request.client.host
     )
 
-    # Dispatch Celery task instead of raw thread
     destroy_environment_task.delay(
         ticket_id=ticket.id,
         ticket_number=ticket.ticket_number,
@@ -181,14 +216,14 @@ def destroy_ticket_environment(
     return {
         "message": "Environment destruction queued",
         "ticket_number": ticket.ticket_number,
-        "status": "expired"
+        "status": "expiring"
     }
 
 @router.get("/all")
 def get_all_tickets(
     status: str = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user=Depends(require_admin)
 ):
     query = db.query(TicketRequest)
     if status:
@@ -201,7 +236,6 @@ def get_portal_stats(
     current_user=Depends(require_admin)
 ):
     from sqlalchemy import func
-    from app.models.user import User
 
     total_tickets = db.query(TicketRequest).count()
     active = db.query(TicketRequest).filter(TicketRequest.status == "active").count()
@@ -215,7 +249,6 @@ def get_portal_stats(
         TicketRequest.status == "active"
     ).scalar() or 0
 
-    # Per user stats
     user_stats = db.query(
         User.email,
         User.full_name,

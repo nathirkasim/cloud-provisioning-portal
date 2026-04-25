@@ -1,14 +1,21 @@
 import { useAuth } from '../context/AuthContext'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
+import api from '../services/api'
 
 export default function Navbar() {
   const { user, logoutUser } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
 
-  const handleLogout = () => {
-    logoutUser()
-    navigate('/login')
+  const handleLogout = async () => {
+    try {
+      await api.post('/auth/logout')
+    } catch (err) {
+      // Token may already be expired — proceed with local logout anyway
+    } finally {
+      logoutUser()
+      navigate('/login')
+    }
   }
 
   const isAdmin = ['admin', 'approver'].includes(user?.role)
@@ -25,7 +32,6 @@ export default function Navbar() {
           <span className="font-bold text-gray-900 text-sm">Cloud Portal</span>
         </div>
 
-        {/* Navigation links */}
         <div className="flex items-center gap-1">
           <Link
             to="/dashboard"
