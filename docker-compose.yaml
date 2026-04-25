@@ -24,6 +24,7 @@ services:
     volumes:
       - ./backend:/app
       - ~/.aws:/root/.aws:ro
+    
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/cloud_portal
       - REDIS_URL=redis://redis:6379/0
@@ -36,7 +37,7 @@ services:
   worker:
     build: ./backend
     container_name: portal_worker
-    command: celery -A app.celery_app worker --loglevel=info
+    command: bash -c "cd /app/terraform && terraform init -reconfigure && cd /app && celery -A app.celery_app worker --loglevel=info"
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/cloud_portal
       - REDIS_URL=redis://redis:6379/0

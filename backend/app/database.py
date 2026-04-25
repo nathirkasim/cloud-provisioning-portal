@@ -1,11 +1,11 @@
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import sessionmaker
 import os
 from dotenv import load_dotenv
 
 # Load local .env if present (useful for local runs)
-load_dotenv()
+load_dotenv(override=False)
 
 # Check for Environment Variable, Fallback to localhost if None
 # Docker will provide the 'db' hostname via docker-compose
@@ -24,8 +24,8 @@ engine = create_engine(
 )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
-
+class Base(DeclarativeBase):
+    pass
 def get_db():
     db = SessionLocal()
     try:
