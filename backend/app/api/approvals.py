@@ -26,9 +26,14 @@ def require_approver(current_user=Depends(get_current_user)):
 
 @router.get("/pending")
 def get_pending_tickets(db: Session = Depends(get_db), current_user=Depends(require_approver)):
-    return db.query(TicketRequest).filter(
+    tickets = db.query(TicketRequest).filter(
         TicketRequest.status == "pending_approval"
     ).order_by(TicketRequest.created_at.asc()).all()
+    for ticket in tickets:
+        requester = db.query(User).filter(User.id == ticket.user_id).first()
+        ticket.requester_name = requester.full_name if requester else None
+        ticket.requester_email = requester.email if requester else None
+    return tickets
 
 @router.put("/{ticket_id}/approve")
 def approve_ticket(
@@ -228,7 +233,12 @@ def get_all_tickets(
     query = db.query(TicketRequest)
     if status:
         query = query.filter(TicketRequest.status == status)
-    return query.order_by(TicketRequest.created_at.desc()).all()
+    tickets = query.order_by(TicketRequest.created_at.desc()).all()
+    for ticket in tickets:
+        requester = db.query(User).filter(User.id == ticket.user_id).first()
+        ticket.requester_name = requester.full_name if requester else None
+        ticket.requester_email = requester.email if requester else None
+    return tickets
 
 @router.get("/stats")
 def get_portal_stats(

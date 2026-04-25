@@ -34,6 +34,13 @@ def check_quota(user_id: int, estimated_cost: float, db: Session):
             detail=f"Estimated cost ${estimated_cost:.2f}/month exceeds your budget limit of ${float(quota.monthly_budget_usd):.2f}."
         )
 
+def attach_requester(ticket, db: Session):
+    """Attach requester name and email to a ticket object."""
+    requester = db.query(User).filter(User.id == ticket.user_id).first()
+    ticket.requester_name = requester.full_name if requester else None
+    ticket.requester_email = requester.email if requester else None
+    return ticket
+
 @router.get("/templates", response_model=list[TemplateResponse])
 def get_templates(db: Session = Depends(get_db)):
     return db.query(EnvironmentTemplate).filter(EnvironmentTemplate.is_active == True).all()
@@ -55,7 +62,7 @@ def create_ticket(ticket: TicketCreate, request: Request, db: Session = Depends(
     cost_estimate = CostEstimator().estimate_cost(template.template_type, resources, ticket.duration_days)
 
     check_quota(current_user["id"], float(cost_estimate["estimated_monthly_cost"]), db)
-    
+
     ticket_number = f"TKT-{uuid.uuid4().hex[:8].upper()}"
     new_ticket = TicketRequest(
         ticket_number=ticket_number,
@@ -97,11 +104,14 @@ def create_ticket(ticket: TicketCreate, request: Request, db: Session = Depends(
         },
         ip_address=request.client.host
     )
-    return new_ticket
+    return attach_requester(new_ticket, db)
 
 @router.get("/my", response_model=list[TicketResponse])
 def get_my_tickets(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    return db.query(TicketRequest).filter(TicketRequest.user_id == current_user["id"]).order_by(TicketRequest.created_at.desc()).all()
+    tickets = db.query(TicketRequest).filter(
+        TicketRequest.user_id == current_user["id"]
+    ).order_by(TicketRequest.created_at.desc()).all()
+    return [attach_requester(t, db) for t in tickets]
 
 @router.get("/quota")
 def get_my_quota(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
@@ -136,25 +146,21 @@ def get_ticket(ticket_id: int, db: Session = Depends(get_db), current_user=Depen
         raise HTTPException(status_code=404, detail="Ticket not found")
     if ticket.user_id != current_user["id"] and current_user["role"] not in ["admin", "approver"]:
         raise HTTPException(status_code=403, detail="Access denied")
-    return ticket
+    return attach_requester(ticket, db)
 
-# --- NEW: GENERATE AWS CONSOLE MAGIC LINK (DEEP LINK VERSION) ---
 @router.get("/{ticket_id}/console-link")
 def get_ticket_console_link(
     ticket_id: int,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user=Depends(get_current_user)
 ):
     """Generate a one-click AWS Console deep link for the provisioned resource."""
-
-    # 1. Fetch the ticket and its associated template
     ticket = db.query(TicketRequest).filter(TicketRequest.id == ticket_id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
 
     template = db.query(EnvironmentTemplate).filter(EnvironmentTemplate.id == ticket.template_id).first()
 
-    # 2. Check if the user is authenticated via IAM
     aws_access_key = current_user.get("aws_access_key")
     aws_secret_key = current_user.get("aws_secret_key")
 
@@ -162,14 +168,13 @@ def get_ticket_console_link(
         raise HTTPException(
             status_code=403,
             detail="AWS Console access requires an active IAM Login session."
-    )
-    # 3. Call the utility with Deep Link parameters
-    
+        )
+
     magic_url = generate_federated_console_url(
         access_key=aws_access_key,
         secret_key=aws_secret_key,
         template_type=template.template_type if template else None,
-        resource_id=ticket.instance_id  
+        resource_id=ticket.instance_id
     )
 
     if not magic_url:

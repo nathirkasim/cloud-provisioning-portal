@@ -183,7 +183,7 @@ export default function Admin() {
                         <div className="flex gap-4 mt-3 text-xs text-gray-400">
                           <span>Duration: {ticket.duration_days} days</span>
                           <span>Cost: ${ticket.estimated_cost_usd}</span>
-                          <span>User ID: {ticket.user_id}</span>
+			  <span>Requested by: {ticket.requester_name || ticket.requester_email || `User ${ticket.user_id}`}</span>
                         </div>
                       </div>
                       <div className="flex flex-col gap-2 ml-6">
@@ -254,7 +254,10 @@ export default function Admin() {
                       <tr key={ticket.id} className="hover:bg-gray-50">
                         <td className="px-6 py-4 text-xs font-mono text-gray-600">{ticket.ticket_number}</td>
                         <td className="px-6 py-4 text-sm text-gray-900">{ticket.title}</td>
-                        <td className="px-6 py-4 text-xs text-gray-500">User {ticket.user_id}</td>
+			<td className="px-6 py-4 text-xs text-gray-500">
+                          <p className="font-medium text-gray-700">{ticket.requester_name || '—'}</p>
+                          <p className="text-gray-400">{ticket.requester_email || ''}</p>
+                        </td>
                         <td className="px-6 py-4">
                           {ticket.environment_url ? (
                             <a href={ticket.environment_url} target="_blank" rel="noreferrer"

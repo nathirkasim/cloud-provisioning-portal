@@ -14,6 +14,8 @@ class TicketResponse(BaseModel):
     id: int
     ticket_number: str
     user_id: int
+    requester_name: Optional[str] = None
+    requester_email: Optional[str] = None
     template_id: int
     title: str
     justification: str
@@ -24,6 +26,7 @@ class TicketResponse(BaseModel):
     environment_url: Optional[str] = None
     instance_id: Optional[str] = None
     created_at: datetime
+
     class Config:
         from_attributes = True
 
@@ -34,6 +37,7 @@ class TemplateResponse(BaseModel):
     template_type: str
     base_cost_usd: Decimal
     resources: Optional[Dict]
+
     class Config:
         from_attributes = True
 
