@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef} from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
 import { getTicket } from '../services/api'
@@ -32,13 +32,34 @@ export default function TicketDetail() {
   const [ticket, setTicket] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  
+  const pollRef = useRef(null)
 
   useEffect(() => {
-    getTicket(id)
-      .then(res => setTicket(res.data))
-      .catch(() => setError('Ticket not found'))
-      .finally(() => setLoading(false))
+    const load = () => {
+      getTicket(id)
+        .then(res => setTicket(res.data))
+        .catch(() => setError('Ticket not found'))
+        .finally(() => setLoading(false))
+    }
+    load()
+    return () => clearInterval(pollRef.current)
   }, [id])
+
+  useEffect(() => {
+    if (!ticket) return
+    const isTransient = ['provisioning', 'approved', 'expiring'].includes(ticket.status)
+    if (isTransient) {
+      pollRef.current = setInterval(() => {
+        getTicket(id)
+          .then(res => setTicket(res.data))
+          .catch(() => {})
+      }, 10000)
+    } else {
+      clearInterval(pollRef.current)
+    }
+    return () => clearInterval(pollRef.current)
+  }, [ticket?.status, id])
 
   if (loading) {
     return (
