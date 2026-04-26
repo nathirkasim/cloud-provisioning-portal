@@ -274,7 +274,7 @@ export default function Dashboard() {
             <table className="w-full">
               <thead>
                 <tr className="bg-gray-50/50">
-                  {['Ticket ID', 'Resource Name', 'Status', 'Console Access', 'Date'].map(h => (
+                  {['Ticket ID', 'Resource Name', 'Status', 'Console Access', 'Expires'].map(h => (
                     <th key={h} className="text-left px-8 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">{h}</th>
                   ))}
                 </tr>
@@ -314,9 +314,20 @@ export default function Dashboard() {
                         </div>
                       )}
                     </td>
-                    <td className="px-8 py-5 text-[10px] font-bold text-gray-400">
-                      {new Date(ticket.created_at).toLocaleDateString()}
-                    </td>
+		    <td className="px-8 py-5 text-[10px] font-bold">
+                      {(() => {
+                        if (ticket.status !== 'active') {
+                          return <span className="text-gray-400">{new Date(ticket.created_at).toLocaleDateString()}</span>
+                      }
+                      const expiresAt = new Date(ticket.created_at)
+                      expiresAt.setDate(expiresAt.getDate() + ticket.duration_days)
+                      const daysLeft = Math.ceil((expiresAt - new Date()) / (1000 * 60 * 60 * 24))
+                      if (daysLeft <= 0) return <span className="text-red-600">Expired</span>
+                      if (daysLeft === 1) return <span className="text-red-500">Expires today</span>
+                      if (daysLeft <= 3) return <span className="text-orange-500">Expires in {daysLeft} days</span>
+                      return <span className="text-gray-400">Expires in {daysLeft} days</span>
+                    })()}
+                  </td>
                   </tr>
                 ))}
               </tbody>
