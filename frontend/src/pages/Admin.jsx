@@ -367,8 +367,17 @@ export default function Admin() {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500 capitalize">{log.resource_type}</td>
                     <td className="px-6 py-4 text-xs font-mono text-gray-600">{log.resource_id}</td>
-                    <td className="px-6 py-4 text-xs text-gray-400 max-w-xs truncate">
-                      {log.details ? JSON.stringify(log.details).slice(0, 60) + '...' : '—'}
+		    <td className="px-6 py-4 text-xs text-gray-400 max-w-xs">
+                      {log.details ? (
+                        <details className="cursor-pointer">
+                          <summary className="truncate max-w-xs hover:text-gray-700 transition-colors">
+                            {JSON.stringify(log.details).slice(0, 60)}...
+                          </summary>
+                          <pre className="mt-2 text-[10px] bg-gray-50 border border-gray-200 rounded p-2 overflow-auto max-h-32 whitespace-pre-wrap break-all">
+                            {JSON.stringify(log.details, null, 2)}
+                          </pre>
+                        </details>
+                      ) : '—'}
                     </td>
                     <td className="px-6 py-4 text-xs text-gray-400">{log.ip_address || '—'}</td>
                     <td className="px-6 py-4 text-xs text-gray-400">{new Date(log.created_at).toLocaleString()}</td>
