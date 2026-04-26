@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import Navbar from '../components/Navbar'
-// Added getConsoleLink to imports
 import { getMyTickets, getTemplates, createTicket, estimateCost, getQuota, getConsoleLink } from '../services/api'
 
 const STATUS_COLORS = {
@@ -245,14 +244,17 @@ export default function Dashboard() {
               </div>
 
               {estimate && (
-                <div className="bg-blue-600 rounded-2xl p-6 text-white shadow-inner">
-                  <p className="text-[10px] font-bold uppercase tracking-widest opacity-80">Projected Infrastructure Cost</p>
-                  <div className="flex items-end gap-1 mt-1">
-                    <span className="text-3xl font-black">${estimate.estimated_monthly_cost}</span>
-                    <span className="text-xs mb-1 opacity-80">/ month</span>
-                  </div>
-                </div>
-              )}
+               <div className="bg-blue-600 rounded-2xl p-6 text-white shadow-inner">
+                 <p className="text-[10px] font-bold uppercase tracking-widest opacity-80">Projected Infrastructure Cost</p>
+                 <div className="flex items-end gap-1 mt-1">
+                   <span className="text-3xl font-black">${estimate.estimated_total_cost}</span>
+                   <span className="text-xs mb-1 opacity-80">for {form.duration_days} days</span>
+                 </div>
+                 <p className="text-[10px] opacity-60 mt-2">
+                   ${estimate.estimated_monthly_cost} / month  •  {estimate.free_tier_eligible ? '✓ Free Tier Eligible' : 'Standard pricing'}
+                 </p>
+               </div>
+             )}
 
               <div className="flex gap-4 pt-4">
                 <button type="submit" disabled={submitting} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all active:scale-95 disabled:opacity-50">
