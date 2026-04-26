@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import Navbar from '../components/Navbar'
-import { getMyTickets, getTemplates, createTicket, estimateCost, getQuota, getConsoleLink } from '../services/api'
+import { getMyTickets, getTemplates, createTicket, estimateCost, getQuota, getConsoleLink, autoCheckTicket } from '../services/api'
 
 const STATUS_COLORS = {
   pending_approval: 'bg-yellow-100 text-yellow-800',
@@ -89,23 +89,25 @@ export default function Dashboard() {
     setSubmitting(true)
     setError('')
     try {
-      await createTicket({
+      const res = await createTicket({
         template_id: parseInt(form.template_id),
         title: form.title,
         justification: form.justification,
         duration_days: parseInt(form.duration_days)
-      })
-      setSuccess('Environment request submitted successfully!')
-      setShowForm(false)
-      setForm({ template_id: '', title: '', justification: '', duration_days: 7 })
-      setEstimate(null)
-      fetchData()
-      setTimeout(() => setSuccess(''), 4000)
-    } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to submit request')
-    } finally {
-      setSubmitting(false)
-    }
+     })
+     const newTicketId = res.data.id
+     await autoCheckTicket(newTicketId)
+     setSuccess('Environment request submitted!')
+     setShowForm(false)
+     setForm({ template_id: '', title: '', justification: '', duration_days: 7 })
+     setEstimate(null)
+     fetchData()
+     setTimeout(() => setSuccess(''), 4000)
+   } catch (err) {
+     setError(err.response?.data?.detail || 'Failed to submit request')
+   } finally {
+    setSubmitting(false)
+   }
   }
 
   // New: Handle Magic Link generation

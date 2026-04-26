@@ -66,6 +66,9 @@ export const approveTicket = (id) =>
 export const rejectTicket = (id, reason) =>
   api.put(`/approvals/${id}/reject`, { reason })
 
+export const autoCheckTicket = (id) =>
+  api.post(`/approvals/${id}/auto-check`)
+
 export const destroyEnvironment = (id) =>
   api.delete(`/approvals/${id}/destroy`)
 
