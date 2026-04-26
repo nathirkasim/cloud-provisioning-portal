@@ -10,6 +10,7 @@ const STATUS_COLORS = {
   approved: 'bg-blue-100 text-blue-800',
   provisioning: 'bg-purple-100 text-purple-800',
   active: 'bg-green-100 text-green-800',
+  expiring: 'bg-orange-100 text-orange-800',
   expired: 'bg-gray-100 text-gray-800',
   rejected: 'bg-red-100 text-red-800',
 }
@@ -19,6 +20,7 @@ const STATUS_LABELS = {
   approved: 'Approved',
   provisioning: 'Provisioning...',
   active: 'Active',
+  expiring: 'Expiring...',
   expired: 'Expired',
   rejected: 'Rejected',
 }
@@ -48,7 +50,7 @@ export default function Dashboard() {
   // Auto-refresh every 10 seconds if any ticket is provisioning
   useEffect(() => {
     const hasProvisioning = tickets.some(t =>
-      ['provisioning', 'approved'].includes(t.status)
+      ['provisioning', 'approved', 'expiring'].includes(t.status)
     )
     if (hasProvisioning) {
       pollRef.current = setInterval(fetchData, 10000)
@@ -157,7 +159,7 @@ export default function Dashboard() {
         {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 text-sm font-medium">{error}</div>}
 
         {/* Auto-refresh notice */}
-        {tickets.some(t => ['provisioning', 'approved'].includes(t.status)) && (
+        {tickets.some(t => ['provisioning', 'approved','expiring'].includes(t.status)) && (
           <div className="bg-blue-50 border border-blue-100 text-blue-700 px-4 py-3 rounded-lg mb-6 text-xs flex items-center gap-3 font-bold uppercase tracking-wider">
             <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
             Syncing with Cloud Provider — Page auto-refreshes...
@@ -290,6 +292,7 @@ export default function Dashboard() {
                     <td className="px-8 py-5">
                       <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-md tracking-tighter ${STATUS_COLORS[ticket.status]}`}>
                         {ticket.status === 'provisioning' && <span className="inline-block w-1.5 h-1.5 bg-purple-500 rounded-full mr-2 animate-ping"></span>}
+			{ticket.status === 'expiring' && <span className="inline-block w-1.5 h-1.5 bg-orange-500 rounded-full mr-2 animate-ping"></span>}
                         {STATUS_LABELS[ticket.status]}
                       </span>
                     </td>
