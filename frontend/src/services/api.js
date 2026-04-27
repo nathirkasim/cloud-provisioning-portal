@@ -99,3 +99,6 @@ export const getPortalStats = () =>
 
 export const getConsoleLink = (ticketId) =>
   api.get(`/tickets/${ticketId}/console-link`);
+
+export const extendEnvironment = (id, additionalDays) =>
+  api.put(`/tickets/${id}/extend`, { additional_days: additionalDays })

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef} from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
-import { getTicket } from '../services/api'
+import { getTicket, extendEnvironment } from '../services/api'
 
 const STATUS_COLORS = {
   pending_approval: 'bg-yellow-100 text-yellow-800',
@@ -32,7 +32,10 @@ export default function TicketDetail() {
   const [ticket, setTicket] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  
+  const [extending, setExtending] = useState(false)
+  const [extendDays, setExtendDays] = useState(7)
+  const [showExtend, setShowExtend] = useState(false)
+  const [success, setSuccess] = useState('')
   const pollRef = useRef(null)
 
   useEffect(() => {
@@ -82,6 +85,21 @@ export default function TicketDetail() {
       </div>
     )
   }
+  
+  const handleExtend = async () => {
+    setExtending(true)
+    try {
+      const res = await extendEnvironment(id, extendDays)
+      setSuccess(res.data.message)
+      setShowExtend(false)
+      getTicket(id).then(r => setTicket(r.data))
+      setTimeout(() => setSuccess(''), 4000)
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to extend environment')
+    } finally {
+      setExtending(false)
+    }
+  }
 
   const expiresAt = new Date(ticket.created_at)
   expiresAt.setDate(expiresAt.getDate() + ticket.duration_days)
@@ -97,6 +115,8 @@ export default function TicketDetail() {
         >
           Back to Dashboard
         </button>
+	{success && <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-6 text-sm">{success}</div>}
+        {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 text-sm">{error}</div>}
 
         <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
           <div className="flex items-start justify-between">
@@ -131,6 +151,43 @@ export default function TicketDetail() {
             </div>
           </div>
         )}
+        
+	{ticket.status === 'active' && (
+          <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-gray-800">Extend Environment</p>
+                <p className="text-xs text-gray-400 mt-0.5">Add more days to keep this environment alive</p>
+               </div>
+               <button
+                 onClick={() => setShowExtend(!showExtend)}
+                 className="text-xs bg-blue-50 text-blue-600 hover:bg-blue-100 font-semibold px-4 py-2 rounded-lg transition-colors"
+               >
+                 {showExtend ? 'Cancel' : '+ Extend'}
+               </button>
+             </div>
+             {showExtend && (
+               <div className="mt-4 flex items-center gap-3">
+                 <input
+                   type="number"
+                   min="1"
+                   max="30"
+                   value={extendDays}
+                   onChange={e => setExtendDays(parseInt(e.target.value))}
+                   className="w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-500">additional days</span>
+                <button
+                  onClick={handleExtend}
+                  disabled={extending}
+                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-lg disabled:opacity-50"
+                >
+                  {extending ? 'Extending...' : 'Confirm Extension'}
+                </button>
+              </div>
+            )}
+         </div>
+       )}
 
         {ticket.status === 'provisioning' && (
           <div className="bg-purple-50 border border-purple-200 rounded-xl p-5 mb-6 flex items-center gap-3">

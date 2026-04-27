@@ -1,5 +1,6 @@
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.ticket import TicketRequest, EnvironmentTemplate
@@ -147,6 +148,53 @@ def get_ticket(ticket_id: int, db: Session = Depends(get_db), current_user=Depen
     if ticket.user_id != current_user["id"] and current_user["role"] not in ["admin", "approver"]:
         raise HTTPException(status_code=403, detail="Access denied")
     return attach_requester(ticket, db)
+
+
+class ExtendRequest(BaseModel):
+    additional_days: int = Field(gt=0, le=30, description="Days to extend (1-30)")
+
+@router.put("/{ticket_id}/extend")
+def extend_environment(
+    ticket_id: int,
+    extend: ExtendRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    ticket = db.query(TicketRequest).filter(TicketRequest.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    if ticket.user_id != current_user["id"] and current_user["role"] not in ["admin", "approver"]:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if ticket.status != "active":
+        raise HTTPException(status_code=400, detail="Only active environments can be extended")
+
+    old_duration = ticket.duration_days
+    ticket.duration_days += extend.additional_days
+    db.commit()
+    db.refresh(ticket)
+
+    log_action(
+        db=db,
+        action="ticket.extended",
+        resource_type="ticket",
+        resource_id=ticket.ticket_number,
+        user_id=current_user["id"],
+        details={
+            "extended_by": current_user["email"],
+            "old_duration_days": old_duration,
+            "new_duration_days": ticket.duration_days,
+            "additional_days": extend.additional_days
+        },
+        ip_address=request.client.host
+    )
+
+    return {
+        "message": f"Environment extended by {extend.additional_days} days",
+        "ticket_number": ticket.ticket_number,
+        "new_duration_days": ticket.duration_days,
+        "status": ticket.status
+    }
 
 @router.get("/{ticket_id}/console-link")
 def get_ticket_console_link(
