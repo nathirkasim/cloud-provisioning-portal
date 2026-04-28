@@ -1,10 +1,12 @@
 import boto3
+import secrets
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.schemas.user import UserCreate, UserLogin, UserResponse, Token, IAMLogin
-from app.utils.security import get_password_hash, verify_password, create_access_token, get_current_user, blocklist_token
+from pydantic import BaseModel
+from app.utils.security import get_password_hash, verify_password, create_access_token, get_current_user, blocklist_token, redis_client
 from app.services.audit_service import log_action
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -144,3 +146,34 @@ def get_current_user_info(current_user=Depends(get_current_user), db: Session = 
 def logout(current_user=Depends(get_current_user)):
     blocklist_token(current_user["token"])
     return {"message": "Logged out successfully"}
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+@router.post("/forgot-password")
+def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    from app.services.email_service import send_password_reset_email
+    user = db.query(User).filter(User.email == payload.email).first()
+    if not user:
+        return {"message": "If that email exists, a reset link has been sent"}
+    reset_token = secrets.token_urlsafe(32)
+    redis_client.setex(f"reset:{reset_token}", 900, str(user.id))
+    send_password_reset_email(user.email, reset_token)
+    return {"message": "If that email exists, a reset link has been sent"}
+
+@router.post("/reset-password")
+def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db)):
+    user_id = redis_client.get(f"reset:{payload.token}")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+    user = db.query(User).filter(User.id == int(user_id)).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.password_hash = get_password_hash(payload.new_password)
+    db.commit()
+    redis_client.delete(f"reset:{payload.token}")
+    return {"message": "Password reset successfully"}

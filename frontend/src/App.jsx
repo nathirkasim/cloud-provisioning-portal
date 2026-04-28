@@ -5,6 +5,7 @@ import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import Admin from './pages/Admin'
 import TicketDetail from './pages/TicketDetail'
+import ResetPassword from './pages/ResetPassword'
 
 function ProtectedRoute({ children, adminOnly = false }) {
   const { user, loading } = useAuth()
@@ -43,6 +44,7 @@ function AppRoutes() {
       <Route path="/tickets/:id" element={<ProtectedRoute><TicketDetail /></ProtectedRoute>} />
       <Route path="/admin" element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
       <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
     </Routes>
   )
 }

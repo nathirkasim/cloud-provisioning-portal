@@ -68,3 +68,16 @@ def send_ticket_rejected_email(user_email: str, ticket_number: str, title: str, 
     <p>Please contact your approver for more details.</p>
     """
     return send_email(user_email, subject, body)
+
+def send_password_reset_email(user_email: str, reset_token: str, frontend_url: str = "http://localhost:5173"):
+    subject = "🔐 Password Reset Request — Cloud Portal"
+    reset_link = f"{frontend_url}/reset-password?token={reset_token}"
+    body = f"""
+    <h2>Password Reset Request</h2>
+    <p>We received a request to reset your password.</p>
+    <p><a href="{reset_link}" style="background:#2563eb;color:white;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:bold;">Reset Password</a></p>
+    <p>Or copy this link: <code>{reset_link}</code></p>
+    <p>This link expires in <b>15 minutes</b>.</p>
+    <p>If you didn't request this, ignore this email.</p>
+    """
+    return send_email(user_email, subject, body)

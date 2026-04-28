@@ -11,6 +11,10 @@ export default function Login() {
   const [secretKey, setSecretKey] = useState('') // AWS Secret Key
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [showForgot, setShowForgot] = useState(false)
+  const [forgotEmail, setForgotEmail] = useState('')
+  const [forgotLoading, setForgotLoading] = useState(false)
+  const [forgotMessage, setForgotMessage] = useState('')
   const { loginUser } = useAuth()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -43,6 +47,22 @@ export default function Login() {
       setError(err.response?.data?.detail || 'Login failed')
     } finally {
       setLoading(false)
+    }
+  }
+ 
+ const handleForgotPassword = async () => {
+    setForgotLoading(true)
+    try {
+      await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail })
+      })
+      setForgotMessage('If that email exists, a reset link has been sent.')
+    } catch (err) {
+      setForgotMessage('Something went wrong. Please try again.')
+    } finally {
+      setForgotLoading(false)
     }
   }
 
@@ -159,7 +179,40 @@ export default function Login() {
           </button>
         </form>
 
-        <p className="text-center text-xs text-gray-400 mt-8">
+        <p className="text-center text-xs text-gray-400 mt-4">
+          <button
+            type="button"
+            onClick={() => setShowForgot(!showForgot)}
+            className="text-blue-600 hover:underline font-bold"
+          >
+            Forgot Password?
+          </button>
+        </p>
+
+        {showForgot && (
+          <div className="mt-4 space-y-3">
+            <input
+              type="email"
+              placeholder="Enter your email"
+              value={forgotEmail}
+              onChange={e => setForgotEmail(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-gray-50"
+            />
+            <button
+              type="button"
+              onClick={handleForgotPassword}
+              disabled={forgotLoading}
+              className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-sm disabled:opacity-50"
+            >
+              {forgotLoading ? 'Sending...' : 'Send Reset Link'}
+            </button>
+            {forgotMessage && (
+              <p className="text-green-600 text-xs text-center">{forgotMessage}</p>
+            )}
+          </div>
+        )}
+
+        <p className="text-center text-xs text-gray-400 mt-4">
           Don't have an account?{' '}
           <Link to="/register" className="text-blue-600 hover:underline font-bold">
             Register
