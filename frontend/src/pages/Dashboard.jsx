@@ -266,8 +266,8 @@ export default function Dashboard() {
   const selectedIsManual = selectedTemplate?.is_manual
 
   const handleTemplateSelect = (templateId) => {
-    const tpl = templates.find(t => t.id === parseInt(templateId))
-    if (tpl?.template_type === 'custom_request') {
+    // Check for the "custom" string explicitly first
+    if (templateId === 'custom') {
       setIsCustom(true)
       setForm({ template_id: '', title: '', justification: '', duration_days: 7 })
     } else {

@@ -3,6 +3,20 @@ from datetime import datetime
 from typing import Optional, Dict
 from decimal import Decimal
 
+# 1. Move TemplateResponse to the top so TicketResponse can use it
+class TemplateResponse(BaseModel):
+    id: int
+    name: str
+    description: Optional[str]
+    template_type: str
+    base_cost_usd: Decimal
+    resources: Optional[Dict]
+    is_manual: bool = False 
+    tier: int = 1
+
+    class Config:
+        from_attributes = True
+
 class TicketCreate(BaseModel):
     template_id: int
     title: str
@@ -29,19 +43,8 @@ class TicketResponse(BaseModel):
     template_type: Optional[str] = None     
     template_subtype: Optional[str] = None  
     requested_resources: Optional[Dict] = None
-
-    class Config:
-        from_attributes = True
-
-class TemplateResponse(BaseModel):
-    id: int
-    name: str
-    description: Optional[str]
-    template_type: str
-    base_cost_usd: Decimal
-    resources: Optional[Dict]
-    is_manual: bool = False 
-    tier: int = 1
+    # 2. FIX: Expose the nested template object to the frontend
+    template: Optional[TemplateResponse] = None 
 
     class Config:
         from_attributes = True

@@ -1,4 +1,6 @@
 import uuid
+import boto3
+from botocore.config import Config
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -14,6 +16,9 @@ from app.utils.security import get_current_user
 from app.utils.aws_console import generate_federated_console_url
 
 router = APIRouter(prefix="/tickets", tags=["Tickets"])
+
+class UploadRequest(BaseModel):
+    filename: str
 
 def check_quota(user_id: int, estimated_cost: float, db: Session):
     quota = db.query(ResourceQuota).filter(ResourceQuota.user_id == user_id).first()
@@ -36,10 +41,16 @@ def check_quota(user_id: int, estimated_cost: float, db: Session):
         )
 
 def attach_requester(ticket, db: Session):
-    """Attach requester name and email to a ticket object."""
+    """Attach requester name, email, and template details to a ticket object."""
     requester = db.query(User).filter(User.id == ticket.user_id).first()
     ticket.requester_name = requester.full_name if requester else None
     ticket.requester_email = requester.email if requester else None
+
+    template = db.query(EnvironmentTemplate).filter(EnvironmentTemplate.id == ticket.template_id).first()
+    if template:
+        ticket.template = template
+        ticket.template_type = template.template_type
+
     return ticket
 
 @router.get("/templates", response_model=list[TemplateResponse])
@@ -149,7 +160,6 @@ def get_ticket(ticket_id: int, db: Session = Depends(get_db), current_user=Depen
         raise HTTPException(status_code=403, detail="Access denied")
     return attach_requester(ticket, db)
 
-
 class ExtendRequest(BaseModel):
     additional_days: int = Field(gt=0, le=30, description="Days to extend (1-30)")
 
@@ -236,13 +246,11 @@ def get_ticket_console_link(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    """Generate a one-click AWS Console deep link for the provisioned resource."""
     ticket = db.query(TicketRequest).filter(TicketRequest.id == ticket_id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
 
     template = db.query(EnvironmentTemplate).filter(EnvironmentTemplate.id == ticket.template_id).first()
-
     aws_access_key = current_user.get("aws_access_key")
     aws_secret_key = current_user.get("aws_secret_key")
 
@@ -264,93 +272,82 @@ def get_ticket_console_link(
 
     return {"url": magic_url}
 
-
-# ── Step 8: Custom Resource Request ──────────────────────────────────────────
-
-class CustomResourceRequest(BaseModel):
-    resource_type_name: str = Field(..., description="What the developer calls it, e.g. 'ElasticSearch Cluster'")
-    cloud_provider: str = Field(default="AWS", description="AWS / GCP / Azure / Other")
-    preferred_region: str = Field(default="ap-south-1")
-    estimated_duration_days: int = Field(default=14, gt=0, le=365)
-    estimated_usage: str = Field(default="", description="Free text, e.g. '50GB storage, ~1000 req/day'")
-    business_justification: str = Field(...)
-    urgency: str = Field(default="Medium", description="Low / Medium / High")
-
-
-@router.post("/custom-request", response_model=TicketResponse, status_code=201)
-def create_custom_request(
-    payload: CustomResourceRequest,
-    request: Request,
+@router.post("/{ticket_id}/upload-url")
+def generate_presigned_upload_url(
+    ticket_id: int,
+    payload: UploadRequest,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user: dict = Depends(get_current_user)
 ):
-    """Create a custom resource request (Others template)."""
-    # Resolve the 'Others' template from DB
-    template = db.query(EnvironmentTemplate).filter(
-        EnvironmentTemplate.template_type == "custom_request"
-    ).first()
-    if not template:
-        raise HTTPException(status_code=500, detail="'Others' template not found in DB — run setup_db.py")
+    ticket = db.query(TicketRequest).filter(TicketRequest.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
 
-    ticket_number = f"TKT-{uuid.uuid4().hex[:8].upper()}"
-    new_ticket = TicketRequest(
-        ticket_number=ticket_number,
-        user_id=current_user["id"],
-        template_id=template.id,
-        title=f"Custom Request: {payload.resource_type_name}",
-        justification=payload.business_justification,
-        duration_days=payload.estimated_duration_days,
-        requested_resources={
-            "resource_type_name": payload.resource_type_name,
-            "cloud_provider": payload.cloud_provider,
-            "preferred_region": payload.preferred_region,
-            "estimated_usage": payload.estimated_usage,
-            "urgency": payload.urgency,
-        },
-        estimated_cost_usd=0,
-        status="pending_approval",
-    )
-    db.add(new_ticket)
-    db.commit()
-    db.refresh(new_ticket)
+    if ticket.user_id != current_user["id"] and current_user.get("role") not in ["admin", "approver"]:
+        raise HTTPException(status_code=403, detail="Access denied")
 
-    # Notify admins with full custom request details
-    from app.services.email_service import send_custom_request_admin_email, send_custom_request_received_email
-    requester = db.query(User).filter(User.id == current_user["id"]).first()
-    admins = db.query(User).filter(User.role.in_(["admin", "approver"])).all()
-    for admin in admins:
-        send_custom_request_admin_email(
-            admin_email=admin.email,
-            ticket_number=new_ticket.ticket_number,
-            requester_name=requester.full_name if requester else current_user["email"],
-            resource_type_name=payload.resource_type_name,
-            cloud_provider=payload.cloud_provider,
-            preferred_region=payload.preferred_region,
-            estimated_duration_days=payload.estimated_duration_days,
-            estimated_usage=payload.estimated_usage,
-            business_justification=payload.business_justification,
-            urgency=payload.urgency,
+    if ticket.status != "active":
+        raise HTTPException(status_code=400, detail="Environment must be active to upload files")
+
+    outputs = ticket.provisioning_output or {}
+    bucket_name = None
+
+    if isinstance(outputs.get("s3_static_site_bucket_id"), dict):
+        bucket_name = outputs["s3_static_site_bucket_id"].get("value")
+    elif isinstance(outputs.get("s3_storage_bucket_id"), dict):
+        bucket_name = outputs["s3_storage_bucket_id"].get("value")
+    else:
+        bucket_name = outputs.get("s3_static_site_bucket_id") or outputs.get("s3_storage_bucket_id")
+
+    if not bucket_name:
+        raise HTTPException(status_code=400, detail="No S3 bucket found for this environment")
+
+    try:
+        # Strict filename and content type matching
+        clean_filename = payload.filename
+        if clean_filename.endswith(".html.html"):
+            clean_filename = clean_filename.replace(".html.html", ".html")
+
+        ext = clean_filename.split('.')[-1].lower()
+        mime_types = {
+            'html': 'text/html',
+            'css': 'text/css',
+            'js': 'application/javascript',
+            'png': 'image/png',
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg'
+        }
+        content_type = mime_types.get(ext, 'application/octet-stream')
+
+        # Use server-side credentials (instance profile / ~/.aws) — NOT the user's
+        # federated IAM session. The user's session only has console read access;
+        # PutObject permission on portal buckets belongs to the backend role only.
+        s3_client = boto3.client(
+            's3',
+            region_name="ap-south-1",
+            endpoint_url="https://s3.ap-south-1.amazonaws.com",
+            config=Config(
+                signature_version='s3v4',
+                s3={'addressing_style': 'virtual'}
+            )
         )
 
-    if requester:
-        send_custom_request_received_email(
-            user_email=requester.email,
-            ticket_number=new_ticket.ticket_number,
-            resource_type_name=payload.resource_type_name,
+        presigned_url = s3_client.generate_presigned_url(
+            'put_object',
+            Params={
+                'Bucket': bucket_name,
+                'Key': clean_filename,
+                'ContentType': content_type
+            },
+            ExpiresIn=300
         )
 
-    log_action(
-        db=db,
-        action="ticket.custom_request_created",
-        resource_type="ticket",
-        resource_id=new_ticket.ticket_number,
-        user_id=current_user["id"],
-        details={
-            "resource_type_name": payload.resource_type_name,
-            "urgency": payload.urgency,
-            "cloud_provider": payload.cloud_provider,
-        },
-        ip_address=request.client.host,
-    )
+        return {
+            "upload_url": presigned_url,
+            "bucket": bucket_name,
+            "key": clean_filename,
+            "content_type": content_type
+        }
 
-    return attach_requester(new_ticket, db)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate upload URL: {str(e)}")

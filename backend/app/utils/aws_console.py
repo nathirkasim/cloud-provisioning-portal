@@ -9,56 +9,129 @@ logger = logging.getLogger(__name__)
 SCOPED_POLICIES = {
     "serverless": {
         "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Effect": "Allow",
-                "Action": [
-                    "lambda:GetFunction",
-                    "lambda:GetFunctionConfiguration",
-                    "lambda:InvokeFunction",
-                    "lambda:ListFunctions",
-                    "cloudwatch:GetMetricStatistics",
-                    "cloudwatch:ListMetrics",
-                    "logs:DescribeLogGroups",
-                    "logs:DescribeLogStreams",
-                    "logs:GetLogEvents"
-                ],
-                "Resource": "*"
-            }
-        ]
+        "Statement": [{
+            "Effect": "Allow",
+            "Action": [
+                "lambda:GetFunction",
+                "lambda:GetFunctionConfiguration",
+                "lambda:InvokeFunction",
+                "lambda:ListFunctions",
+                "cloudwatch:GetMetricStatistics",
+                "cloudwatch:ListMetrics",
+                "logs:DescribeLogGroups",
+                "logs:DescribeLogStreams",
+                "logs:GetLogEvents"
+            ],
+            "Resource": "*"
+        }]
     },
     "database": {
         "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Effect": "Allow",
-                "Action": [
-                    "rds:DescribeDBInstances",
-                    "rds:DescribeDBClusters",
-                    "rds:ListTagsForResource",
-                    "cloudwatch:GetMetricStatistics",
-                    "cloudwatch:ListMetrics"
-                ],
-                "Resource": "*"
-            }
-        ]
+        "Statement": [{
+            "Effect": "Allow",
+            "Action": [
+                "rds:DescribeDBInstances",
+                "rds:DescribeDBClusters",
+                "rds:ListTagsForResource",
+                "cloudwatch:GetMetricStatistics",
+                "cloudwatch:ListMetrics"
+            ],
+            "Resource": "*"
+        }]
     },
     "web_app": {
         "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Effect": "Allow",
-                "Action": [
-                    "ec2:DescribeInstances",
-                    "ec2:DescribeInstanceStatus",
-                    "cloudwatch:GetMetricStatistics",
-                    "cloudwatch:ListMetrics",
-                    "logs:DescribeLogGroups",
-                    "logs:GetLogEvents"
-                ],
-                "Resource": "*"
-            }
-        ]
+        "Statement": [{
+            "Effect": "Allow",
+            "Action": [
+                "ec2:DescribeInstances",
+                "ec2:DescribeInstanceStatus",
+                "cloudwatch:GetMetricStatistics",
+                "cloudwatch:ListMetrics",
+                "logs:DescribeLogGroups",
+                "logs:GetLogEvents"
+            ],
+            "Resource": "*"
+        }]
+    },
+    "s3_storage": {
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Action": [
+                "s3:ListAllMyBuckets",
+                "s3:GetBucketLocation",
+                "s3:ListBucket",
+                "s3:GetObject"
+            ],
+            "Resource": "*"
+        }]
+    },
+    "s3_static_site": {
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Action": [
+                "s3:ListAllMyBuckets",
+                "s3:GetBucketLocation",
+                "s3:ListBucket",
+                "s3:GetObject"
+            ],
+            "Resource": "*"
+        }]
+    },
+    "dynamodb": {
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Action": [
+                "dynamodb:DescribeTable",
+                "dynamodb:ListTables",
+                "dynamodb:Scan",
+                "dynamodb:Query",
+                "dynamodb:GetItem"
+            ],
+            "Resource": "*"
+        }]
+    },
+    "sns_topic": {
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Action": [
+                "sns:ListTopics",
+                "sns:GetTopicAttributes",
+                "sns:ListSubscriptionsByTopic"
+            ],
+            "Resource": "*"
+        }]
+    },
+    "ecr_repository": {
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Action": [
+                "ecr:DescribeRepositories",
+                "ecr:ListImages",
+                "ecr:DescribeImages"
+            ],
+            "Resource": "*"
+        }]
+    },
+    "ecs_container": {
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Action": [
+                "ecs:ListClusters",
+                "ecs:DescribeClusters",
+                "ecs:ListServices",
+                "ecs:DescribeServices",
+                "ecs:ListTasks",
+                "ecs:DescribeTasks"
+            ],
+            "Resource": "*"
+        }]
     }
 }
 
@@ -78,7 +151,7 @@ def generate_federated_console_url(access_key, secret_key, region="ap-south-1", 
         # Use scoped policy for the template type, fallback to read-only
         policy = SCOPED_POLICIES.get(template_type, {
             "Version": "2012-10-17",
-            "Statement": [{"Effect": "Allow", "Action": ["aws-portal:ViewBilling"], "Resource": "*"}]
+            "Statement": [{"Effect": "Allow", "Action": ["resource-explorer-2:List*"], "Resource": "*"}]
         })
 
         federated_user = sts.get_federation_token(
@@ -106,8 +179,12 @@ def generate_federated_console_url(access_key, secret_key, region="ap-south-1", 
             destination = f"https://{region}.console.aws.amazon.com/rds/home?region={region}#database:id={resource_id};is-cluster=false"
         elif template_type == 'web_app' and resource_id:
             destination = f"https://{region}.console.aws.amazon.com/ec2/v2/home?region={region}#Instances:instanceId={resource_id}"
+        elif template_type in ['s3_storage', 's3_static_site'] and resource_id:
+            destination = f"https://s3.console.aws.amazon.com/s3/buckets/{resource_id}?region={region}"
+        elif template_type == 'dynamodb' and resource_id:
+            destination = f"https://{region}.console.aws.amazon.com/dynamodbv2/home?region={region}#item-explorer?table={resource_id}"
         else:
-            destination = f"https://{region}.console.aws.amazon.com/console/home?region={region}"
+            destination = f"https://{region}.console.aws.amazon.com/console/home?region={region}" 
 
         login_url = (
             f"{fed_url}?Action=login"

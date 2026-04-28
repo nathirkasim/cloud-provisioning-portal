@@ -74,3 +74,16 @@ resource "aws_s3_object" "index" {
 
   depends_on = [aws_s3_bucket_policy.static_site]
 }
+
+# Allow the React frontend to upload files directly via Presigned URLs
+resource "aws_s3_bucket_cors_configuration" "static_site" {
+  bucket = aws_s3_bucket.static_site.id
+
+  cors_rule {
+    allowed_headers = ["*"]
+    allowed_methods = ["PUT", "POST","GET", "HEAD"]
+    allowed_origins = ["http://localhost:5173"] # Change this in production
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3000
+  }
+}

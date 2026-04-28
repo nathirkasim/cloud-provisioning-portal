@@ -29,3 +29,15 @@ resource "aws_s3_bucket_public_access_block" "storage" {
   ignore_public_acls      = true
   restrict_public_buckets = true
 }
+
+resource "aws_s3_bucket_cors_configuration" "storage" {
+  bucket = aws_s3_bucket.storage.id
+
+  cors_rule {
+    allowed_headers = ["*"]
+    allowed_methods = ["PUT", "POST"]
+    allowed_origins = ["http://localhost:5173"] # Change this in production
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3000
+  }
+}

@@ -114,3 +114,6 @@ export const extendEnvironment = (id, additionalDays) =>
 
 export const cancelTicket = (id) =>
   api.delete(`/tickets/${id}/cancel`)
+
+export const getUploadUrl = (ticketId, filename) =>
+  api.post(`/tickets/${ticketId}/upload-url`, { filename });

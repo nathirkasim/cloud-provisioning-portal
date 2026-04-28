@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Navbar from '../components/Navbar'
-import { getTicket, extendEnvironment } from '../services/api'
+import { getTicket, extendEnvironment, destroyEnvironment, getUploadUrl } from '../services/api'
 
 const STATUS_COLORS = {
   pending_approval:     'bg-yellow-100 text-yellow-800',
@@ -86,7 +86,6 @@ function InfoRow({ label, value, mono, link, copyable }) {
   )
 }
 
-// Per-template resource info panel shown when ticket is active
 function ResourcePanel({ ticket }) {
   const out = ticket.provisioning_output || {}
   const type = ticket.template_type || ticket.template?.template_type
@@ -184,7 +183,6 @@ function ResourcePanel({ ticket }) {
     )
   }
 
-  // Generic fallback for auto types not explicitly mapped
   return (
     <div className="space-y-3">
       <InfoRow label="Resource ID" value={ticket.instance_id} mono copyable />
@@ -193,7 +191,6 @@ function ResourcePanel({ ticket }) {
   )
 }
 
-// Panel shown for manual tickets (Tier 2 / Tier 3)
 function ManualStatusPanel({ ticket }) {
   const status = ticket.status
   const out = ticket.provisioning_output || {}
@@ -268,7 +265,6 @@ function ManualStatusPanel({ ticket }) {
   return null
 }
 
-// Panel for custom resource requests
 function CustomRequestPanel({ ticket }) {
   const resources = ticket.requested_resources || {}
   if (ticket.template_type !== 'custom_request' && ticket.template?.template_type !== 'custom_request') return null
@@ -304,6 +300,10 @@ export default function TicketDetail() {
   const [extendDays, setExtendDays] = useState(7)
   const [showExtend, setShowExtend] = useState(false)
   const [success, setSuccess] = useState('')
+
+  const [uploading, setUploading] = useState(false)
+  const [uploadSuccess, setUploadSuccess] = useState('')
+
   const pollRef = useRef(null)
 
   useEffect(() => {
@@ -332,6 +332,57 @@ export default function TicketDetail() {
     return () => clearInterval(pollRef.current)
   }, [ticket?.status, id])
 
+  const handleExtend = async () => {
+    setExtending(true)
+    try {
+      const res = await extendEnvironment(id, extendDays)
+      setSuccess(res.data.message)
+      setShowExtend(false)
+      getTicket(id).then(r => setTicket(r.data))
+      setTimeout(() => setSuccess(''), 4000)
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to extend environment')
+    } finally {
+      setExtending(false)
+    }
+  }
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    console.log("Uploading file:", file.name);
+
+    setUploading(true);
+    setError('');
+    setUploadSuccess('');
+
+    try {
+      // 1. Get the secure Presigned URL from backend
+      const { data } = await getUploadUrl(id, file.name);
+
+      // 2. Upload directly to S3
+      const response = await fetch(data.upload_url, {
+        method: 'PUT',
+        body: file,
+        mode: 'cors',
+        headers: {
+          'Content-Type': data.content_type
+        }
+      });
+
+      if (response.ok) {
+        setUploadSuccess(`Successfully uploaded ${file.name}!`);
+        setTimeout(() => setUploadSuccess(''), 5000);
+      } else {
+        throw new Error('Direct upload to S3 failed. Check CORS settings.');
+      }
+    } catch (err) {
+      setError(err.response?.data?.detail || err.message || 'File upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -352,21 +403,6 @@ export default function TicketDetail() {
         </div>
       </div>
     )
-  }
-
-  const handleExtend = async () => {
-    setExtending(true)
-    try {
-      const res = await extendEnvironment(id, extendDays)
-      setSuccess(res.data.message)
-      setShowExtend(false)
-      getTicket(id).then(r => setTicket(r.data))
-      setTimeout(() => setSuccess(''), 4000)
-    } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to extend environment')
-    } finally {
-      setExtending(false)
-    }
   }
 
   const expiresAt = new Date(ticket.created_at)
@@ -411,18 +447,14 @@ export default function TicketDetail() {
           </div>
         </div>
 
-        {/* Custom request details */}
         {isCustom && <CustomRequestPanel ticket={ticket} />}
 
-        {/* Manual setup status banners */}
         {isManual && (ticket.status === 'pending_manual_setup' || ticket.status === 'in_progress') && (
           <ManualStatusPanel ticket={ticket} />
         )}
 
-        {/* Manual ticket resource details (when active) */}
         {isManual && ticket.status === 'active' && <ManualStatusPanel ticket={ticket} />}
 
-        {/* Auto-provisioned active environment */}
         {!isManual && ticket.status === 'active' && (
           <div className="bg-green-50 border border-green-200 rounded-xl p-5 mb-6">
             <p className="text-sm font-semibold text-green-800 mb-4">✅ Environment is Live</p>
@@ -430,7 +462,6 @@ export default function TicketDetail() {
           </div>
         )}
 
-        {/* Provisioning spinner */}
         {ticket.status === 'provisioning' && (
           <div className="bg-purple-50 border border-purple-200 rounded-xl p-5 mb-6 flex items-center gap-3">
             <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-purple-600 shrink-0"></div>
@@ -441,7 +472,54 @@ export default function TicketDetail() {
           </div>
         )}
 
-        {/* Extend panel */}
+        {/* Resource Content Manager (Upload) */}
+        {ticket.status === 'active' &&
+         (templateType === 's3_static_site' || templateType === 's3_storage') && (
+          <div className="bg-blue-50 border border-blue-200 rounded-2xl p-6 mb-6 shadow-sm">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="bg-blue-600 p-2 rounded-lg text-white text-xl">☁️</div>
+              <div>
+                <h3 className="text-sm font-bold text-blue-900">Resource Content Manager</h3>
+                <p className="text-xs text-blue-700 mt-0.5">
+                  {templateType === 's3_static_site'
+                    ? "Upload 'index.html' to update your hosted website instantly."
+                    : "Securely upload files to your cloud storage bucket."}
+                </p>
+              </div>
+            </div>
+
+            {uploadSuccess && (
+              <div className="bg-green-100 border border-green-200 text-green-800 px-4 py-2 rounded-lg text-xs font-bold mb-4 animate-pulse">
+                {uploadSuccess}
+              </div>
+            )}
+
+            <label className={`
+              relative cursor-pointer border-2 border-dashed rounded-xl p-8
+              flex flex-col items-center justify-center transition-all
+              ${uploading ? 'bg-gray-100 border-gray-300 cursor-not-allowed' : 'bg-white border-blue-300 hover:border-blue-500 hover:bg-blue-50'}
+            `}>
+              <span className="text-sm font-bold text-blue-600 mb-1">
+                {uploading ? 'Finalizing secure transfer...' : 'Select or drag file to upload'}
+              </span>
+              <span className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">Max size: 50MB</span>
+
+              <input
+                type="file"
+                className="hidden"
+                onChange={handleFileUpload}
+                disabled={uploading}
+              />
+
+              {uploading && (
+                <div className="absolute inset-0 bg-white/60 flex items-center justify-center rounded-xl">
+                   <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                </div>
+              )}
+            </label>
+          </div>
+        )}
+
         {ticket.status === 'active' && (
           <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6">
             <div className="flex items-center justify-between">
@@ -477,7 +555,6 @@ export default function TicketDetail() {
           </div>
         )}
 
-        {/* Details grid */}
         <div className="grid grid-cols-2 gap-6 mb-6">
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h2 className="text-sm font-semibold text-gray-700 mb-4">Request Details</h2>
