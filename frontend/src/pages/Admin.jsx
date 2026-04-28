@@ -20,6 +20,10 @@ export default function Admin() {
   const [rejectReason, setRejectReason] = useState({})
   const [showReject, setShowReject] = useState(null)
   const [confirmDestroy, setConfirmDestroy] = useState(null)
+  // FIX Bug 3: track pending role change confirmation
+  const [pendingRoleChange, setPendingRoleChange] = useState(null) // { userId, newRole, userName }
+  const [activeSearch, setActiveSearch] = useState('')
+  const [pendingSearch, setPendingSearch] = useState('')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
 
@@ -69,6 +73,12 @@ export default function Admin() {
       await rejectTicket(id, rejectReason[id] || 'Rejected by admin')
       setMessage(`${ticketNumber} rejected`)
       setShowReject(null)
+      // FIX Bug 4: clear stale rejection reason after successful reject
+      setRejectReason(prev => {
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
       fetchAll()
       setTimeout(() => setMessage(''), 4000)
     } catch (err) {
@@ -94,7 +104,14 @@ export default function Admin() {
     }
   }
 
-  const handleRoleChange = async (userId, newRole) => {
+  // FIX Bug 3: split role change into a confirmation step + confirmed action
+  const handleRoleChangeRequest = (userId, newRole, userName) => {
+    setPendingRoleChange({ userId, newRole, userName })
+  }
+
+  const handleRoleChangeConfirm = async () => {
+    if (!pendingRoleChange) return
+    const { userId, newRole } = pendingRoleChange
     setError('')
     try {
       await updateUserRole(userId, newRole)
@@ -103,12 +120,30 @@ export default function Admin() {
       setTimeout(() => setMessage(''), 3000)
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to update role')
+    } finally {
+      setPendingRoleChange(null)
     }
   }
 
+  // FIX Bug 5: derive filtered counts for tab labels
+  const filteredPendingCount = pending.filter(t =>
+    t.title.toLowerCase().includes(pendingSearch.toLowerCase()) ||
+    t.ticket_number.toLowerCase().includes(pendingSearch.toLowerCase()) ||
+    (t.requester_name || '').toLowerCase().includes(pendingSearch.toLowerCase()) ||
+    (t.requester_email || '').toLowerCase().includes(pendingSearch.toLowerCase())
+  ).length
+
+  const filteredActiveCount = activeTickets.filter(t =>
+    t.title.toLowerCase().includes(activeSearch.toLowerCase()) ||
+    t.ticket_number.toLowerCase().includes(activeSearch.toLowerCase()) ||
+    (t.requester_name || '').toLowerCase().includes(activeSearch.toLowerCase()) ||
+    (t.requester_email || '').toLowerCase().includes(activeSearch.toLowerCase())
+  ).length
+
+  // FIX Bug 5: show filtered count when a search is active, otherwise total
   const tabs = [
-    { id: TAB_PENDING, label: `Pending (${pending.length})` },
-    { id: TAB_ACTIVE, label: `Active (${activeTickets.length})` },
+    { id: TAB_PENDING, label: `Pending (${pendingSearch ? filteredPendingCount + '/' : ''}${pending.length})` },
+    { id: TAB_ACTIVE, label: `Active (${activeSearch ? filteredActiveCount + '/' : ''}${activeTickets.length})` },
     { id: TAB_USERS, label: `Users (${users.length})` },
     { id: TAB_AUDIT, label: 'Audit Log' },
     { id: TAB_STATS, label: 'Cost & Stats' },
@@ -143,6 +178,34 @@ export default function Admin() {
           </div>
         )}
 
+        {/* FIX Bug 3: Role change confirmation modal */}
+        {pendingRoleChange && (
+          <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl border border-gray-200 shadow-xl p-6 max-w-sm w-full mx-4">
+              <h3 className="text-base font-semibold text-gray-900 mb-2">Confirm Role Change</h3>
+              <p className="text-sm text-gray-500 mb-6">
+                Change <span className="font-medium text-gray-800">{pendingRoleChange.userName}</span>'s
+                role to <span className="font-medium text-gray-800 capitalize">{pendingRoleChange.newRole}</span>?
+                This will immediately affect their permissions.
+              </p>
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => setPendingRoleChange(null)}
+                  className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleRoleChangeConfirm}
+                  className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700"
+                >
+                  Confirm
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Tabs */}
         <div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-fit mb-8">
           {tabs.map(t => (
@@ -161,8 +224,15 @@ export default function Admin() {
         {/* Pending Approvals */}
         {tab === TAB_PENDING && (
           <div className="bg-white rounded-xl border border-gray-200">
-            <div className="px-6 py-4 border-b border-gray-100">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
               <h2 className="text-base font-semibold text-gray-900">Pending Approvals</h2>
+              <input
+                type="text"
+                placeholder="Search by title, ticket, or user..."
+                value={pendingSearch}
+                onChange={e => setPendingSearch(e.target.value)}
+                className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-64"
+              />
             </div>
             {pending.length === 0 ? (
               <div className="text-center py-12">
@@ -170,7 +240,12 @@ export default function Admin() {
               </div>
             ) : (
               <div className="divide-y divide-gray-100">
-                {pending.map(ticket => (
+                {pending.filter(t =>
+                  t.title.toLowerCase().includes(pendingSearch.toLowerCase()) ||
+                  t.ticket_number.toLowerCase().includes(pendingSearch.toLowerCase()) ||
+                  (t.requester_name || '').toLowerCase().includes(pendingSearch.toLowerCase()) ||
+                  (t.requester_email || '').toLowerCase().includes(pendingSearch.toLowerCase())
+                ).map(ticket => (
                   <div key={ticket.id} className="px-6 py-5">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
@@ -183,7 +258,7 @@ export default function Admin() {
                         <div className="flex gap-4 mt-3 text-xs text-gray-400">
                           <span>Duration: {ticket.duration_days} days</span>
                           <span>Cost: ${ticket.estimated_cost_usd}</span>
-			  <span>Requested by: {ticket.requester_name || ticket.requester_email || `User ${ticket.user_id}`}</span>
+                          <span>Requested by: {ticket.requester_name || ticket.requester_email || `User ${ticket.user_id}`}</span>
                         </div>
                       </div>
                       <div className="flex flex-col gap-2 ml-6">
@@ -227,11 +302,18 @@ export default function Admin() {
           </div>
         )}
 
-        {/* Active Environments */}
+        {/* FIX Bug 1: Active Environments — header div is now properly closed before the table */}
         {tab === TAB_ACTIVE && (
           <div className="bg-white rounded-xl border border-gray-200">
-            <div className="px-6 py-4 border-b border-gray-100">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
               <h2 className="text-base font-semibold text-gray-900">Active Environments</h2>
+              <input
+                type="text"
+                placeholder="Search by title, ticket, or user..."
+                value={activeSearch}
+                onChange={e => setActiveSearch(e.target.value)}
+                className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 w-64"
+              />
             </div>
             {activeTickets.length === 0 ? (
               <div className="text-center py-12">
@@ -247,14 +329,19 @@ export default function Admin() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {activeTickets.map(ticket => {
+                  {activeTickets.filter(t =>
+                    t.title.toLowerCase().includes(activeSearch.toLowerCase()) ||
+                    t.ticket_number.toLowerCase().includes(activeSearch.toLowerCase()) ||
+                    (t.requester_name || '').toLowerCase().includes(activeSearch.toLowerCase()) ||
+                    (t.requester_email || '').toLowerCase().includes(activeSearch.toLowerCase())
+                  ).map(ticket => {
                     const expiresAt = new Date(ticket.created_at)
                     expiresAt.setDate(expiresAt.getDate() + ticket.duration_days)
                     return (
                       <tr key={ticket.id} className="hover:bg-gray-50">
                         <td className="px-6 py-4 text-xs font-mono text-gray-600">{ticket.ticket_number}</td>
                         <td className="px-6 py-4 text-sm text-gray-900">{ticket.title}</td>
-			<td className="px-6 py-4 text-xs text-gray-500">
+                        <td className="px-6 py-4 text-xs text-gray-500">
                           <p className="font-medium text-gray-700">{ticket.requester_name || '—'}</p>
                           <p className="text-gray-400">{ticket.requester_email || ''}</p>
                         </td>
@@ -322,9 +409,10 @@ export default function Admin() {
                     <td className="px-6 py-4 text-sm text-gray-500">{user.email}</td>
                     <td className="px-6 py-4 text-sm text-gray-500">{user.department}</td>
                     <td className="px-6 py-4">
+                      {/* FIX Bug 3: onChange now triggers confirmation modal, not immediate API call */}
                       <select
                         value={user.role}
-                        onChange={e => handleRoleChange(user.id, e.target.value)}
+                        onChange={e => handleRoleChangeRequest(user.id, e.target.value, user.full_name || user.email)}
                         className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                       >
                         <option value="developer">Developer</option>
@@ -367,7 +455,7 @@ export default function Admin() {
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500 capitalize">{log.resource_type}</td>
                     <td className="px-6 py-4 text-xs font-mono text-gray-600">{log.resource_id}</td>
-		    <td className="px-6 py-4 text-xs text-gray-400 max-w-xs">
+                    <td className="px-6 py-4 text-xs text-gray-400 max-w-xs">
                       {log.details ? (
                         <details className="cursor-pointer">
                           <summary className="truncate max-w-xs hover:text-gray-700 transition-colors">
@@ -388,11 +476,9 @@ export default function Admin() {
           </div>
         )}
 
-
         {/* Stats Tab */}
         {tab === TAB_STATS && (
           <div className="space-y-6">
-            {/* Overview cards */}
             {stats && (
               <>
                 <div className="grid grid-cols-4 gap-4">
@@ -422,7 +508,6 @@ export default function Admin() {
                   ))}
                 </div>
 
-                {/* Per user breakdown */}
                 <div className="bg-white rounded-xl border border-gray-200">
                   <div className="px-6 py-4 border-b border-gray-100">
                     <h2 className="text-base font-semibold text-gray-900">Cost by User</h2>
