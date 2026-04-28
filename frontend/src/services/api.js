@@ -102,3 +102,6 @@ export const getConsoleLink = (ticketId) =>
 
 export const extendEnvironment = (id, additionalDays) =>
   api.put(`/tickets/${id}/extend`, { additional_days: additionalDays })
+
+export const cancelTicket = (id) =>
+  api.delete(`/tickets/${id}/cancel`)

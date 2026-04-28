@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import Navbar from '../components/Navbar'
-import { getMyTickets, getTemplates, createTicket, estimateCost, getQuota, getConsoleLink, autoCheckTicket } from '../services/api'
+import { getMyTickets, getTemplates, createTicket, estimateCost, getQuota, getConsoleLink, autoCheckTicket, cancelTicket } from '../services/api'
 
 const STATUS_COLORS = {
   pending_approval: 'bg-yellow-100 text-yellow-800',
@@ -12,6 +12,7 @@ const STATUS_COLORS = {
   expiring: 'bg-orange-100 text-orange-800',
   expired: 'bg-gray-100 text-gray-800',
   rejected: 'bg-red-100 text-red-800',
+  cancelled: 'bg-gray-100 text-gray-500',
 }
 
 const STATUS_LABELS = {
@@ -22,6 +23,7 @@ const STATUS_LABELS = {
   expiring: 'Expiring...',
   expired: 'Expired',
   rejected: 'Rejected',
+  cancelled: 'Cancelled',
 }
 
 const TEMPLATE_NAMES = { 1: 'Web App', 2: 'Database', 3: 'Serverless' }
@@ -94,32 +96,43 @@ export default function Dashboard() {
         title: form.title,
         justification: form.justification,
         duration_days: parseInt(form.duration_days)
-     })
-     const newTicketId = res.data.id
-     await autoCheckTicket(newTicketId)
-     setSuccess('Environment request submitted!')
-     setShowForm(false)
-     setForm({ template_id: '', title: '', justification: '', duration_days: 7 })
-     setEstimate(null)
-     fetchData()
-     setTimeout(() => setSuccess(''), 4000)
-   } catch (err) {
-     setError(err.response?.data?.detail || 'Failed to submit request')
-   } finally {
-    setSubmitting(false)
-   }
+      })
+      const newTicketId = res.data.id
+      await autoCheckTicket(newTicketId)
+      setSuccess('Environment request submitted!')
+      setShowForm(false)
+      setForm({ template_id: '', title: '', justification: '', duration_days: 7 })
+      setEstimate(null)
+      fetchData()
+      setTimeout(() => setSuccess(''), 4000)
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to submit request')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
-  // New: Handle Magic Link generation
   const handleOpenConsole = async (ticketId) => {
     try {
-      const res = await getConsoleLink(ticketId);
-      window.open(res.data.url, '_blank');
+      const res = await getConsoleLink(ticketId)
+      window.open(res.data.url, '_blank')
     } catch (err) {
-      setError(err.response?.data?.detail || "IAM session required for console access.");
-      setTimeout(() => setError(''), 5000);
+      setError(err.response?.data?.detail || 'IAM session required for console access.')
+      setTimeout(() => setError(''), 5000)
     }
-  };
+  }
+
+  const handleCancel = async (ticketId, ticketNumber) => {
+    if (!window.confirm(`Cancel ticket ${ticketNumber}? This cannot be undone.`)) return
+    try {
+      await cancelTicket(ticketId)
+      setSuccess(`Ticket ${ticketNumber} cancelled`)
+      fetchData()
+      setTimeout(() => setSuccess(''), 4000)
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to cancel ticket')
+    }
+  }
 
   const stats = {
     total: tickets.length,
@@ -160,7 +173,7 @@ export default function Dashboard() {
         {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 text-sm font-medium">{error}</div>}
 
         {/* Auto-refresh notice */}
-        {tickets.some(t => ['provisioning', 'approved','expiring'].includes(t.status)) && (
+        {tickets.some(t => ['provisioning', 'approved', 'expiring'].includes(t.status)) && (
           <div className="bg-blue-50 border border-blue-100 text-blue-700 px-4 py-3 rounded-lg mb-6 text-xs flex items-center gap-3 font-bold uppercase tracking-wider">
             <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
             Syncing with Cloud Provider — Page auto-refreshes...
@@ -246,17 +259,17 @@ export default function Dashboard() {
               </div>
 
               {estimate && (
-               <div className="bg-blue-600 rounded-2xl p-6 text-white shadow-inner">
-                 <p className="text-[10px] font-bold uppercase tracking-widest opacity-80">Projected Infrastructure Cost</p>
-                 <div className="flex items-end gap-1 mt-1">
-                   <span className="text-3xl font-black">${estimate.estimated_total_cost}</span>
-                   <span className="text-xs mb-1 opacity-80">for {form.duration_days} days</span>
-                 </div>
-                 <p className="text-[10px] opacity-60 mt-2">
-                   ${estimate.estimated_monthly_cost} / month  •  {estimate.free_tier_eligible ? '✓ Free Tier Eligible' : 'Standard pricing'}
-                 </p>
-               </div>
-             )}
+                <div className="bg-blue-600 rounded-2xl p-6 text-white shadow-inner">
+                  <p className="text-[10px] font-bold uppercase tracking-widest opacity-80">Projected Infrastructure Cost</p>
+                  <div className="flex items-end gap-1 mt-1">
+                    <span className="text-3xl font-black">${estimate.estimated_total_cost}</span>
+                    <span className="text-xs mb-1 opacity-80">for {form.duration_days} days</span>
+                  </div>
+                  <p className="text-[10px] opacity-60 mt-2">
+                    ${estimate.estimated_monthly_cost} / month  •  {estimate.free_tier_eligible ? '✓ Free Tier Eligible' : 'Standard pricing'}
+                  </p>
+                </div>
+              )}
 
               <div className="flex gap-4 pt-4">
                 <button type="submit" disabled={submitting} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all active:scale-95 disabled:opacity-50">
@@ -273,7 +286,7 @@ export default function Dashboard() {
             <h2 className="text-sm font-bold text-gray-900 uppercase tracking-widest">Active Deployments</h2>
             <button onClick={fetchData} className="text-[10px] font-bold text-blue-600 hover:underline uppercase">Refresh Registry</button>
           </div>
-          
+
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -296,7 +309,7 @@ export default function Dashboard() {
                     <td className="px-8 py-5">
                       <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-md tracking-tighter ${STATUS_COLORS[ticket.status]}`}>
                         {ticket.status === 'provisioning' && <span className="inline-block w-1.5 h-1.5 bg-purple-500 rounded-full mr-2 animate-ping"></span>}
-			{ticket.status === 'expiring' && <span className="inline-block w-1.5 h-1.5 bg-orange-500 rounded-full mr-2 animate-ping"></span>}
+                        {ticket.status === 'expiring' && <span className="inline-block w-1.5 h-1.5 bg-orange-500 rounded-full mr-2 animate-ping"></span>}
                         {STATUS_LABELS[ticket.status]}
                       </span>
                     </td>
@@ -311,27 +324,34 @@ export default function Dashboard() {
                           </svg>
                           LAUNCH CONSOLE
                         </button>
+                      ) : ticket.status === 'pending_approval' ? (
+                        <button
+                          onClick={() => handleCancel(ticket.id, ticket.ticket_number)}
+                          className="inline-flex items-center gap-2 bg-red-50 hover:bg-red-100 text-red-600 text-[10px] font-black px-4 py-2 rounded-lg transition-all active:scale-95"
+                        >
+                          CANCEL REQUEST
+                        </button>
                       ) : (
                         <div className="flex items-center gap-2 text-gray-300">
-                           <div className="w-1.5 h-1.5 bg-gray-200 rounded-full"></div>
-                           <span className="text-[10px] font-bold italic uppercase tracking-widest">Locked</span>
+                          <div className="w-1.5 h-1.5 bg-gray-200 rounded-full"></div>
+                          <span className="text-[10px] font-bold italic uppercase tracking-widest">Locked</span>
                         </div>
                       )}
                     </td>
-		    <td className="px-8 py-5 text-[10px] font-bold">
+                    <td className="px-8 py-5 text-[10px] font-bold">
                       {(() => {
                         if (ticket.status !== 'active') {
                           return <span className="text-gray-400">{new Date(ticket.created_at).toLocaleDateString()}</span>
-                      }
-                      const expiresAt = new Date(ticket.created_at)
-                      expiresAt.setDate(expiresAt.getDate() + ticket.duration_days)
-                      const daysLeft = Math.ceil((expiresAt - new Date()) / (1000 * 60 * 60 * 24))
-                      if (daysLeft <= 0) return <span className="text-red-600">Expired</span>
-                      if (daysLeft === 1) return <span className="text-red-500">Expires today</span>
-                      if (daysLeft <= 3) return <span className="text-orange-500">Expires in {daysLeft} days</span>
-                      return <span className="text-gray-400">Expires in {daysLeft} days</span>
-                    })()}
-                  </td>
+                        }
+                        const expiresAt = new Date(ticket.created_at)
+                        expiresAt.setDate(expiresAt.getDate() + ticket.duration_days)
+                        const daysLeft = Math.ceil((expiresAt - new Date()) / (1000 * 60 * 60 * 24))
+                        if (daysLeft <= 0) return <span className="text-red-600">Expired</span>
+                        if (daysLeft === 1) return <span className="text-red-500">Expires today</span>
+                        if (daysLeft <= 3) return <span className="text-orange-500">Expires in {daysLeft} days</span>
+                        return <span className="text-gray-400">Expires in {daysLeft} days</span>
+                      })()}
+                    </td>
                   </tr>
                 ))}
               </tbody>

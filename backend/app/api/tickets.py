@@ -196,6 +196,40 @@ def extend_environment(
         "status": ticket.status
     }
 
+@router.delete("/{ticket_id}/cancel")
+def cancel_ticket(
+    ticket_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    ticket = db.query(TicketRequest).filter(TicketRequest.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    if ticket.user_id != current_user["id"]:
+        raise HTTPException(status_code=403, detail="You can only cancel your own tickets")
+    if ticket.status != "pending_approval":
+        raise HTTPException(status_code=400, detail=f"Only pending tickets can be cancelled. Current status: {ticket.status}")
+
+    ticket.status = "cancelled"
+    db.commit()
+
+    log_action(
+        db=db,
+        action="ticket.cancelled",
+        resource_type="ticket",
+        resource_id=ticket.ticket_number,
+        user_id=current_user["id"],
+        details={"cancelled_by": current_user["email"]},
+        ip_address=request.client.host
+    )
+
+    return {
+        "message": "Ticket cancelled successfully",
+        "ticket_number": ticket.ticket_number,
+        "status": "cancelled"
+    }
+
 @router.get("/{ticket_id}/console-link")
 def get_ticket_console_link(
     ticket_id: int,
