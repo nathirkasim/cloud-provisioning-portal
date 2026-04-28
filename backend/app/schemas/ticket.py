@@ -26,6 +26,9 @@ class TicketResponse(BaseModel):
     environment_url: Optional[str] = None
     instance_id: Optional[str] = None
     created_at: datetime
+    template_type: Optional[str] = None     
+    template_subtype: Optional[str] = None  
+    requested_resources: Optional[Dict] = None
 
     class Config:
         from_attributes = True
@@ -37,6 +40,8 @@ class TemplateResponse(BaseModel):
     template_type: str
     base_cost_usd: Decimal
     resources: Optional[Dict]
+    is_manual: bool = False 
+    tier: int = 1
 
     class Config:
         from_attributes = True

@@ -56,6 +56,9 @@ export const getTicket = (id) =>
 export const estimateCost = (templateId, durationDays) =>
   api.post(`/tickets/estimate-cost?template_id=${templateId}&duration_days=${durationDays}`)
 
+export const createCustomRequest = (data) =>
+  api.post('/tickets/custom-request', data)
+
 // Approvals
 export const getPendingTickets = () =>
   api.get('/approvals/pending')
@@ -71,6 +74,12 @@ export const autoCheckTicket = (id) =>
 
 export const destroyEnvironment = (id) =>
   api.delete(`/approvals/${id}/destroy`)
+
+export const markInProgress = (id) =>
+  api.put(`/approvals/${id}/mark-in-progress`, {})
+
+export const completeManualSetup = (id, data) =>
+  api.put(`/approvals/${id}/manual-complete`, data)
 
 // Users
 export const getUsers = () =>
@@ -98,7 +107,7 @@ export const getPortalStats = () =>
   api.get('/approvals/stats')
 
 export const getConsoleLink = (ticketId) =>
-  api.get(`/tickets/${ticketId}/console-link`);
+  api.get(`/tickets/${ticketId}/console-link`)
 
 export const extendEnvironment = (id, additionalDays) =>
   api.put(`/tickets/${id}/extend`, { additional_days: additionalDays })

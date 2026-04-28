@@ -81,3 +81,84 @@ def send_password_reset_email(user_email: str, reset_token: str, frontend_url: s
     <p>If you didn't request this, ignore this email.</p>
     """
     return send_email(user_email, subject, body)
+
+
+def send_manual_setup_received_email(user_email: str, ticket_number: str, title: str, sla_days: int):
+    subject = f"⏳ Your Request {ticket_number} Has Been Approved — Awaiting Admin Setup"
+    body = f"""
+    <h2>Request Approved — Setup In Progress</h2>
+    <p>Your resource request has been approved and is now being set up by our admin team.</p>
+    <table border="1" cellpadding="8" style="border-collapse:collapse;">
+        <tr><td><b>Ticket</b></td><td>{ticket_number}</td></tr>
+        <tr><td><b>Title</b></td><td>{title}</td></tr>
+        <tr><td><b>Status</b></td><td>⏳ Pending Manual Setup</td></tr>
+        <tr><td><b>Estimated SLA</b></td><td>{sla_days} business day(s)</td></tr>
+    </table>
+    <p>You will receive another email when your resource is ready with connection details.</p>
+    """
+    return send_email(user_email, subject, body)
+
+
+def send_manual_setup_ready_email(user_email: str, ticket_number: str, title: str, resource_details: str, environment_url: str = None):
+    subject = f"✅ Your Resource {ticket_number} Is Ready"
+    url_row = f"<tr><td><b>URL / Endpoint</b></td><td><a href='{environment_url}'>{environment_url}</a></td></tr>" if environment_url else ""
+    body = f"""
+    <h2>Resource Ready!</h2>
+    <p>Your manually provisioned resource is now live and ready to use.</p>
+    <table border="1" cellpadding="8" style="border-collapse:collapse;">
+        <tr><td><b>Ticket</b></td><td>{ticket_number}</td></tr>
+        <tr><td><b>Title</b></td><td>{title}</td></tr>
+        <tr><td><b>Status</b></td><td>✅ Active</td></tr>
+        {url_row}
+        <tr><td><b>Resource Details</b></td><td><pre style="margin:0;">{resource_details}</pre></td></tr>
+    </table>
+    <p>Please log in to the portal to view your ticket and access your resource.</p>
+    """
+    return send_email(user_email, subject, body)
+
+
+def send_custom_request_received_email(user_email: str, ticket_number: str, resource_type_name: str):
+    subject = f"📋 Custom Request {ticket_number} Received"
+    body = f"""
+    <h2>Custom Resource Request Received</h2>
+    <p>We have received your request for a <b>{resource_type_name}</b>.</p>
+    <table border="1" cellpadding="8" style="border-collapse:collapse;">
+        <tr><td><b>Ticket</b></td><td>{ticket_number}</td></tr>
+        <tr><td><b>Resource</b></td><td>{resource_type_name}</td></tr>
+        <tr><td><b>Status</b></td><td>📋 Pending Approval</td></tr>
+    </table>
+    <p>An admin will review your request and may reach out for more information. You will be notified at every status change.</p>
+    """
+    return send_email(user_email, subject, body)
+
+
+def send_custom_request_admin_email(
+    admin_email: str,
+    ticket_number: str,
+    requester_name: str,
+    resource_type_name: str,
+    cloud_provider: str,
+    preferred_region: str,
+    estimated_duration_days: int,
+    estimated_usage: str,
+    business_justification: str,
+    urgency: str,
+):
+    subject = f"[Custom Request] {ticket_number} — {resource_type_name} ({urgency} urgency)"
+    body = f"""
+    <h2>New Custom Resource Request</h2>
+    <p>A developer has submitted a custom resource request that requires your review.</p>
+    <table border="1" cellpadding="8" style="border-collapse:collapse;">
+        <tr><td><b>Ticket</b></td><td>{ticket_number}</td></tr>
+        <tr><td><b>Requested By</b></td><td>{requester_name}</td></tr>
+        <tr><td><b>Resource Type</b></td><td>{resource_type_name}</td></tr>
+        <tr><td><b>Cloud Provider</b></td><td>{cloud_provider}</td></tr>
+        <tr><td><b>Preferred Region</b></td><td>{preferred_region}</td></tr>
+        <tr><td><b>Duration</b></td><td>{estimated_duration_days} days</td></tr>
+        <tr><td><b>Estimated Usage</b></td><td>{estimated_usage}</td></tr>
+        <tr><td><b>Business Justification</b></td><td>{business_justification}</td></tr>
+        <tr><td><b>Urgency</b></td><td>{urgency}</td></tr>
+    </table>
+    <p>Please log in to the portal to approve, reject, or request more information.</p>
+    """
+    return send_email(admin_email, subject, body)

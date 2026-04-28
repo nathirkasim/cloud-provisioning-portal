@@ -263,3 +263,94 @@ def get_ticket_console_link(
         raise HTTPException(status_code=500, detail="Error generating AWS session.")
 
     return {"url": magic_url}
+
+
+# ── Step 8: Custom Resource Request ──────────────────────────────────────────
+
+class CustomResourceRequest(BaseModel):
+    resource_type_name: str = Field(..., description="What the developer calls it, e.g. 'ElasticSearch Cluster'")
+    cloud_provider: str = Field(default="AWS", description="AWS / GCP / Azure / Other")
+    preferred_region: str = Field(default="ap-south-1")
+    estimated_duration_days: int = Field(default=14, gt=0, le=365)
+    estimated_usage: str = Field(default="", description="Free text, e.g. '50GB storage, ~1000 req/day'")
+    business_justification: str = Field(...)
+    urgency: str = Field(default="Medium", description="Low / Medium / High")
+
+
+@router.post("/custom-request", response_model=TicketResponse, status_code=201)
+def create_custom_request(
+    payload: CustomResourceRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Create a custom resource request (Others template)."""
+    # Resolve the 'Others' template from DB
+    template = db.query(EnvironmentTemplate).filter(
+        EnvironmentTemplate.template_type == "custom_request"
+    ).first()
+    if not template:
+        raise HTTPException(status_code=500, detail="'Others' template not found in DB — run setup_db.py")
+
+    ticket_number = f"TKT-{uuid.uuid4().hex[:8].upper()}"
+    new_ticket = TicketRequest(
+        ticket_number=ticket_number,
+        user_id=current_user["id"],
+        template_id=template.id,
+        title=f"Custom Request: {payload.resource_type_name}",
+        justification=payload.business_justification,
+        duration_days=payload.estimated_duration_days,
+        requested_resources={
+            "resource_type_name": payload.resource_type_name,
+            "cloud_provider": payload.cloud_provider,
+            "preferred_region": payload.preferred_region,
+            "estimated_usage": payload.estimated_usage,
+            "urgency": payload.urgency,
+        },
+        estimated_cost_usd=0,
+        status="pending_approval",
+    )
+    db.add(new_ticket)
+    db.commit()
+    db.refresh(new_ticket)
+
+    # Notify admins with full custom request details
+    from app.services.email_service import send_custom_request_admin_email, send_custom_request_received_email
+    requester = db.query(User).filter(User.id == current_user["id"]).first()
+    admins = db.query(User).filter(User.role.in_(["admin", "approver"])).all()
+    for admin in admins:
+        send_custom_request_admin_email(
+            admin_email=admin.email,
+            ticket_number=new_ticket.ticket_number,
+            requester_name=requester.full_name if requester else current_user["email"],
+            resource_type_name=payload.resource_type_name,
+            cloud_provider=payload.cloud_provider,
+            preferred_region=payload.preferred_region,
+            estimated_duration_days=payload.estimated_duration_days,
+            estimated_usage=payload.estimated_usage,
+            business_justification=payload.business_justification,
+            urgency=payload.urgency,
+        )
+
+    if requester:
+        send_custom_request_received_email(
+            user_email=requester.email,
+            ticket_number=new_ticket.ticket_number,
+            resource_type_name=payload.resource_type_name,
+        )
+
+    log_action(
+        db=db,
+        action="ticket.custom_request_created",
+        resource_type="ticket",
+        resource_id=new_ticket.ticket_number,
+        user_id=current_user["id"],
+        details={
+            "resource_type_name": payload.resource_type_name,
+            "urgency": payload.urgency,
+            "cloud_provider": payload.cloud_provider,
+        },
+        ip_address=request.client.host,
+    )
+
+    return attach_requester(new_ticket, db)
