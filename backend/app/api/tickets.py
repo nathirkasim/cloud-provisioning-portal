@@ -68,7 +68,7 @@ def estimate_cost(template_id: int, duration_days: int = 14, db: Session = Depen
     
     # Combine with template base cost
     final_monthly = estimate["estimated_monthly_cost"] + template.base_cost_usd
-    final_total = final_monthly * (estimate["duration_days"] / 30)
+    final_total = float(final_monthly) * (estimate["duration_days"] / 30)
     
     return {
         "estimated_monthly_cost": final_monthly,
