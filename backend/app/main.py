@@ -26,11 +26,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth.router)
-app.include_router(tickets.router)
-app.include_router(approvals.router)
-app.include_router(users.router)
-app.include_router(audit_logs.router)
+app.include_router(auth.router,       prefix="/api")
+app.include_router(tickets.router,    prefix="/api")
+app.include_router(approvals.router,  prefix="/api")
+app.include_router(users.router,      prefix="/api")
+app.include_router(audit_logs.router, prefix="/api")
 
 @app.get("/")
 def read_root():

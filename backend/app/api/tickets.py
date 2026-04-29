@@ -62,7 +62,21 @@ def estimate_cost(template_id: int, duration_days: int = 14, db: Session = Depen
     template = db.query(EnvironmentTemplate).filter(EnvironmentTemplate.id == template_id).first()
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
-    return CostEstimator().estimate_cost(template.template_type, template.resources or {}, duration_days)
+    
+    # Get dynamic estimate
+    estimate = CostEstimator().estimate_cost(template.template_type, template.resources or {}, duration_days)
+    
+    # Combine with template base cost
+    final_monthly = estimate["estimated_monthly_cost"] + template.base_cost_usd
+    final_total = final_monthly * (estimate["duration_days"] / 30)
+    
+    return {
+        "estimated_monthly_cost": final_monthly,
+        "estimated_total_cost": round(final_total, 2),
+        "duration_days": estimate["duration_days"],
+        "breakdown": estimate["breakdown"],
+        "free_tier_eligible": final_monthly == 0
+    }
 
 @router.post("/", response_model=TicketResponse, status_code=201)
 def create_ticket(ticket: TicketCreate, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
@@ -71,9 +85,12 @@ def create_ticket(ticket: TicketCreate, request: Request, db: Session = Depends(
         raise HTTPException(status_code=404, detail="Template not found")
 
     resources = ticket.requested_resources or template.resources or {}
-    cost_estimate = CostEstimator().estimate_cost(template.template_type, resources, ticket.duration_days)
+    
+    # Calculate costs combining Estimator logic and Template Base Cost
+    raw_estimate = CostEstimator().estimate_cost(template.template_type, resources, ticket.duration_days)
+    final_cost_usd = raw_estimate["estimated_monthly_cost"] + template.base_cost_usd
 
-    check_quota(current_user["id"], float(cost_estimate["estimated_monthly_cost"]), db)
+    check_quota(current_user["id"], float(final_cost_usd), db)
 
     ticket_number = f"TKT-{uuid.uuid4().hex[:8].upper()}"
     new_ticket = TicketRequest(
@@ -84,7 +101,7 @@ def create_ticket(ticket: TicketCreate, request: Request, db: Session = Depends(
         justification=ticket.justification,
         duration_days=ticket.duration_days,
         requested_resources=resources,
-        estimated_cost_usd=cost_estimate["estimated_monthly_cost"],
+        estimated_cost_usd=final_cost_usd,
         status="pending_approval"
     )
     db.add(new_ticket)

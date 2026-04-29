@@ -41,7 +41,7 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/cloud_portal
       - REDIS_URL=redis://redis:6379/0
-      - AWS_DEFAULT_REGION=ap-south-1
+      - AWS_DEFAULT_REGION=us-east-1
     volumes:
       - ./backend:/app
       - ~/.aws:/root/.aws:ro
