@@ -1,63 +1,70 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import Navbar from '../components/Navbar'
-import { getTicket, extendEnvironment, destroyEnvironment, getUploadUrl } from '../services/api'
+import { getTicket, extendEnvironment, getUploadUrl, getConsoleLink } from '../services/api'
 
-const STATUS_COLORS = {
-  pending_approval:     'bg-yellow-100 text-yellow-800',
-  approved:             'bg-blue-100 text-blue-800',
-  provisioning:         'bg-purple-100 text-purple-800',
-  active:               'bg-green-100 text-green-800',
-  expiring:             'bg-orange-100 text-orange-800',
-  expired:              'bg-gray-100 text-gray-800',
-  rejected:             'bg-red-100 text-red-800',
-  cancelled:            'bg-gray-100 text-gray-500',
-  pending_manual_setup: 'bg-amber-100 text-amber-800',
-  in_progress:          'bg-cyan-100 text-cyan-800',
-}
+// ─── Constants ────────────────────────────────────────────────────────────────
 
-const STATUS_LABELS = {
-  pending_approval:     'Pending Approval',
-  approved:             'Approved',
-  provisioning:         'Provisioning...',
-  active:               'Active',
-  expiring:             'Expiring...',
-  expired:              'Expired',
-  rejected:             'Rejected',
-  cancelled:            'Cancelled',
-  pending_manual_setup: 'Awaiting Admin Setup',
-  in_progress:          'Admin Working On It',
+const STATUS_CONFIG = {
+  pending_approval:     { label: 'Pending approval',    color: '#BA7517', bg: '#FAEEDA', dot: '#854F0B', pulse: false },
+  approved:             { label: 'Approved',             color: '#185FA5', bg: '#D6E9FB', dot: '#185FA5', pulse: false },
+  provisioning:         { label: 'Provisioning',         color: '#534AB7', bg: '#E5E3FD', dot: '#534AB7', pulse: true  },
+  active:               { label: 'Active',               color: '#27500A', bg: '#D4EDB8', dot: '#3B6D11', pulse: false },
+  expiring:             { label: 'Expiring soon',        color: '#791F1F', bg: '#FCEBEB', dot: '#A32D2D', pulse: true  },
+  expired:              { label: 'Expired',              color: '#666',    bg: '#F0F0F0', dot: '#999',    pulse: false },
+  rejected:             { label: 'Rejected',             color: '#791F1F', bg: '#FCEBEB', dot: '#A32D2D', pulse: false },
+  cancelled:            { label: 'Cancelled',            color: '#888',    bg: '#F0F0F0', dot: '#AAA',    pulse: false },
+  pending_manual_setup: { label: 'Awaiting admin setup', color: '#633806', bg: '#FAEEDA', dot: '#854F0B', pulse: true  },
+  in_progress:          { label: 'Admin working on it',  color: '#085041', bg: '#D2F0E7', dot: '#1D9E75', pulse: true  },
 }
 
 const TEMPLATE_META = {
-  web_app:           { icon: '🖥️',  label: 'EC2 Web Application' },
-  database:          { icon: '🗄️',  label: 'RDS PostgreSQL' },
-  serverless:        { icon: '⚡',  label: 'Lambda Serverless' },
-  s3_static_site:    { icon: '🌐',  label: 'S3 Static Site' },
-  s3_storage:        { icon: '🪣',  label: 'S3 Storage Bucket' },
-  sns_topic:         { icon: '📣',  label: 'SNS Topic' },
-  dynamodb:          { icon: '⚡',  label: 'DynamoDB Table' },
-  ecr_repository:    { icon: '📦',  label: 'ECR Repository' },
-  ecs_container:     { icon: '🐳',  label: 'ECS Fargate Container' },
-  elasticache_redis: { icon: '🔴',  label: 'ElastiCache Redis' },
-  cloudfront_cdn:    { icon: '🌍',  label: 'CloudFront CDN' },
-  rds_read_replica:  { icon: '🗄️',  label: 'RDS Read Replica' },
-  secrets_manager:   { icon: '🔐',  label: 'AWS Secrets Manager' },
-  waf_rules:         { icon: '🛡️',  label: 'WAF v2 Rules' },
-  kinesis_stream:    { icon: '🌊',  label: 'Kinesis Data Stream' },
-  eks_cluster:       { icon: '☸️',  label: 'EKS Cluster' },
-  codepipeline:      { icon: '🔄',  label: 'CodePipeline / CI-CD' },
-  opensearch:        { icon: '🔍',  label: 'OpenSearch' },
-  redshift:          { icon: '🏢',  label: 'Redshift' },
-  custom_request:    { icon: '✨',  label: 'Custom Resource Request' },
+  web_app:           { icon: '🖥️', label: 'EC2 Web Application'    },
+  database:          { icon: '🗄️', label: 'RDS PostgreSQL'          },
+  serverless:        { icon: '⚡',  label: 'Lambda Serverless'       },
+  s3_static_site:    { icon: '🌐', label: 'S3 Static Site'          },
+  s3_storage:        { icon: '🪣', label: 'S3 Storage Bucket'       },
+  sns_topic:         { icon: '📣', label: 'SNS Topic'               },
+  dynamodb:          { icon: '⚡',  label: 'DynamoDB Table'          },
+  ecr_repository:    { icon: '📦', label: 'ECR Repository'          },
+  ecs_container:     { icon: '🐳', label: 'ECS Fargate Container'   },
+  elasticache_redis: { icon: '🔴', label: 'ElastiCache Redis'       },
+  cloudfront_cdn:    { icon: '🌍', label: 'CloudFront CDN'          },
+  rds_read_replica:  { icon: '🗄️', label: 'RDS Read Replica'       },
+  secrets_manager:   { icon: '🔐', label: 'AWS Secrets Manager'     },
+  waf_rules:         { icon: '🛡️', label: 'WAF v2 Rules'           },
+  kinesis_stream:    { icon: '🌊', label: 'Kinesis Data Stream'     },
+  eks_cluster:       { icon: '☸️', label: 'EKS Cluster'             },
+  codepipeline:      { icon: '🔄', label: 'CodePipeline / CI-CD'   },
+  opensearch:        { icon: '🔍', label: 'OpenSearch'              },
+  redshift:          { icon: '🏢', label: 'Redshift'                },
+  custom_request:    { icon: '✨', label: 'Custom Resource Request' },
 }
 
-function InfoRow({ label, value, mono, link, copyable }) {
+// ─── Small atoms ─────────────────────────────────────────────────────────────
+
+function StatusPill({ status }) {
+  const cfg = STATUS_CONFIG[status] || { label: status, color: '#666', bg: '#eee', dot: '#999', pulse: false }
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 5,
+      fontSize: 11, fontWeight: 500, padding: '4px 10px', borderRadius: 20,
+      background: cfg.bg, color: cfg.color, whiteSpace: 'nowrap',
+    }}>
+      <span style={{
+        width: 6, height: 6, borderRadius: '50%', background: cfg.dot, flexShrink: 0,
+        animation: cfg.pulse ? 'cpulse 1.4s ease-in-out infinite' : 'none',
+      }} />
+      {cfg.label}
+    </span>
+  )
+}
+
+function CopyField({ label, value, mono = true, isLink = false }) {
   const [copied, setCopied] = useState(false)
   if (!value) return (
     <div>
-      <p className="text-xs text-gray-400">{label}</p>
-      <p className="text-sm text-gray-300 italic">Not available</p>
+      <div style={labelSt}>{label}</div>
+      <div style={{ fontSize: 12, color: '#BBB', fontStyle: 'italic' }}>Not available</div>
     </div>
   )
   const handleCopy = () => {
@@ -67,268 +74,308 @@ function InfoRow({ label, value, mono, link, copyable }) {
   }
   return (
     <div>
-      <p className="text-xs text-gray-400 mb-0.5">{label}</p>
-      <div className="flex items-center gap-2">
-        {link ? (
+      <div style={labelSt}>{label}</div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginTop: 2 }}>
+        {isLink ? (
           <a href={value} target="_blank" rel="noreferrer"
-            className="text-sm text-blue-600 hover:underline break-all font-medium">{value}</a>
+            style={{ fontSize: 12, color: '#378ADD', wordBreak: 'break-all', fontFamily: mono ? 'DM Mono, monospace' : 'inherit' }}>
+            {value}
+          </a>
         ) : (
-          <p className={`text-sm text-gray-900 break-all ${mono ? 'font-mono' : 'font-medium'}`}>{value}</p>
+          <span style={{ fontSize: 12, color: '#111', wordBreak: 'break-all', fontFamily: mono ? 'DM Mono, monospace' : 'inherit', lineHeight: 1.5 }}>
+            {value}
+          </span>
         )}
-        {copyable && (
-          <button onClick={handleCopy}
-            className="shrink-0 text-[10px] text-gray-400 hover:text-blue-600 border border-gray-200 px-1.5 py-0.5 rounded transition-colors">
-            {copied ? '✓' : 'copy'}
-          </button>
-        )}
+        <button onClick={handleCopy} style={{
+          flexShrink: 0, fontSize: 9, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
+          background: copied ? '#D4EDB8' : '#F0F0F0',
+          color: copied ? '#27500A' : '#888',
+          border: `0.5px solid ${copied ? '#A8D98A' : '#DCDCDC'}`,
+          cursor: 'pointer', transition: 'all 0.15s', marginTop: 1,
+        }}>
+          {copied ? '✓ copied' : 'copy'}
+        </button>
       </div>
     </div>
   )
 }
 
-function ResourcePanel({ ticket }) {
-  const out = ticket.provisioning_output || {}
+const labelSt = { fontSize: 10, fontWeight: 600, color: '#AAA', letterSpacing: '0.05em', textTransform: 'uppercase' }
+
+function SidebarRow({ label, value, mono = false }) {
+  if (!value) return null
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', paddingBottom: 7, borderBottom: '0.5px solid #F0F0F0', marginBottom: 7 }}>
+      <span style={{ fontSize: 11, color: '#AAA' }}>{label}</span>
+      <span style={{ fontSize: 11, fontWeight: 500, color: '#111', fontFamily: mono ? 'DM Mono, monospace' : 'inherit', textAlign: 'right', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</span>
+    </div>
+  )
+}
+
+// ─── Resource endpoint section by type ────────────────────────────────────────
+
+function ResourceEndpoints({ ticket }) {
   const type = ticket.template_type || ticket.template?.template_type
+  const out = ticket.provisioning_output || {}
+  const v = (key) => { const val = out[key]; if (val && typeof val === 'object' && 'value' in val) return val.value; return val }
 
-  const v = (key) => {
-    const val = out[key]
-    if (val && typeof val === 'object' && 'value' in val) return val.value
-    return val
-  }
-
-  const panels = {
-    web_app: () => (
+  const sections = {
+    web_app: (
       <>
-        <InfoRow label="Instance ID" value={ticket.instance_id} mono copyable />
-        <InfoRow label="Public URL" value={ticket.environment_url} link />
-        <InfoRow label="Public IP" value={v('web_app_public_ip')} mono />
+        <CopyField label="Public URL" value={ticket.environment_url} isLink mono={false} />
+        <CopyField label="Instance ID" value={ticket.instance_id} />
+        <CopyField label="Public IP" value={v('web_app_public_ip')} />
       </>
     ),
-    database: () => (
+    database: (
       <>
-        <InfoRow label="DB Instance ID" value={ticket.instance_id} mono copyable />
-        <InfoRow label="Endpoint" value={ticket.environment_url} mono copyable />
-        <p className="text-xs text-gray-400 mt-1">Connect via psql or your preferred client. Password was auto-generated — check the email confirmation.</p>
+        <CopyField label="Endpoint" value={ticket.environment_url} />
+        <CopyField label="DB Instance ID" value={ticket.instance_id} />
+        <div style={{ fontSize: 11, color: '#854F0B', background: '#FAEEDA', borderRadius: 5, padding: '7px 10px', marginTop: 4 }}>
+          Password was auto-generated and emailed to you at provisioning time.
+        </div>
       </>
     ),
-    serverless: () => (
+    serverless: (
       <>
-        <InfoRow label="Function Name" value={ticket.instance_id} mono copyable />
-        <InfoRow label="API Endpoint" value={ticket.environment_url} link />
+        <CopyField label="API endpoint" value={ticket.environment_url} isLink mono={false} />
+        <CopyField label="Function name" value={ticket.instance_id} />
       </>
     ),
-    s3_static_site: () => (
+    s3_static_site: (
       <>
-        <InfoRow label="Bucket Name" value={ticket.instance_id} mono copyable />
-        <InfoRow label="Website URL" value={ticket.environment_url} link />
-        <p className="text-xs text-amber-700 mt-2 bg-amber-50 rounded-lg px-3 py-2">
-          📋 Upload your files to the bucket. The <code>index.html</code> placeholder was auto-created.
-        </p>
+        <CopyField label="Website URL" value={ticket.environment_url} isLink mono={false} />
+        <CopyField label="Bucket name" value={ticket.instance_id} />
+        <div style={{ fontSize: 11, color: '#633806', background: '#FAEEDA', borderRadius: 5, padding: '7px 10px', marginTop: 4 }}>
+          📋 Upload your <code>index.html</code> using the file manager below to update your site.
+        </div>
       </>
     ),
-    s3_storage: () => (
+    s3_storage: (
       <>
-        <InfoRow label="Bucket Name" value={ticket.instance_id} mono copyable />
-        <InfoRow label="Bucket ARN" value={ticket.environment_url} mono copyable />
-        <p className="text-xs text-gray-500 mt-2">Private bucket with versioning enabled. All public access is blocked.</p>
+        <CopyField label="Bucket name" value={ticket.instance_id} />
+        <CopyField label="Bucket ARN" value={ticket.environment_url} />
+        <div style={{ fontSize: 11, color: '#555', marginTop: 4 }}>Private bucket · versioning enabled · public access blocked.</div>
       </>
     ),
-    sns_topic: () => (
+    ecr_repository: (
       <>
-        <InfoRow label="Topic Name" value={ticket.instance_id} mono copyable />
-        <InfoRow label="Topic ARN" value={ticket.environment_url} mono copyable />
-      </>
-    ),
-    dynamodb: () => (
-      <>
-        <InfoRow label="Table Name" value={ticket.instance_id} mono copyable />
-        <InfoRow label="Table ARN" value={ticket.environment_url} mono copyable />
-        <p className="text-xs text-gray-500 mt-2">On-demand billing. String hash key provisioned. Free tier: 25GB storage.</p>
-      </>
-    ),
-    ecr_repository: () => (
-      <>
-        <InfoRow label="Repository Name" value={ticket.instance_id} mono copyable />
-        <InfoRow label="Repository URL" value={ticket.environment_url} mono copyable />
+        <CopyField label="Repository URL" value={ticket.environment_url} />
+        <CopyField label="Repository name" value={ticket.instance_id} />
         {ticket.environment_url && (
-          <div className="mt-3">
-            <p className="text-xs text-gray-400 mb-1">Docker Push Command</p>
-            <pre className="text-[11px] bg-gray-50 border border-gray-200 rounded-lg p-3 overflow-auto text-gray-700 select-all">
+          <div style={{ marginTop: 8 }}>
+            <div style={labelSt}>Docker push commands</div>
+            <pre style={{ fontSize: 10, background: '#F4F4F4', border: '0.5px solid #E0E0E0', borderRadius: 5, padding: '8px 10px', fontFamily: 'DM Mono, monospace', marginTop: 4, overflowX: 'auto', lineHeight: 1.6 }}>
               {`docker tag <image> ${ticket.environment_url}:latest\ndocker push ${ticket.environment_url}:latest`}
             </pre>
           </div>
         )}
       </>
     ),
-    ecs_container: () => (
+    ecs_container: (
       <>
-        <div className="bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 mb-3">
-          <p className="text-xs text-orange-700 font-medium">⚠️ Not free tier — ~$9/month while running</p>
+        <div style={{ fontSize: 11, color: '#854F0B', background: '#FAEEDA', borderRadius: 5, padding: '7px 10px', marginBottom: 8 }}>
+          ⚠️ Not free tier — ~$9/month while running
         </div>
-        <InfoRow label="Cluster Name" value={ticket.instance_id} mono copyable />
-        <InfoRow label="Service URL" value={ticket.environment_url} link />
-        {!ticket.environment_url && (
-          <p className="text-xs text-gray-500 mt-2">Public IP is assigned at runtime. It may take a minute after provisioning for the task to start and the IP to appear.</p>
-        )}
+        <CopyField label="Service URL" value={ticket.environment_url} isLink mono={false} />
+        <CopyField label="Cluster name" value={ticket.instance_id} />
+        {!ticket.environment_url && <div style={{ fontSize: 11, color: '#999', marginTop: 4 }}>Public IP is assigned at runtime — may take a minute after provisioning to appear.</div>}
+      </>
+    ),
+    sns_topic: (
+      <>
+        <CopyField label="Topic ARN" value={ticket.environment_url} />
+        <CopyField label="Topic name" value={ticket.instance_id} />
+      </>
+    ),
+    dynamodb: (
+      <>
+        <CopyField label="Table ARN" value={ticket.environment_url} />
+        <CopyField label="Table name" value={ticket.instance_id} />
+        <div style={{ fontSize: 11, color: '#555', marginTop: 4 }}>On-demand billing · 25GB free storage tier.</div>
       </>
     ),
   }
 
-  const renderFn = panels[type]
-  if (renderFn) {
-    return (
-      <div className="space-y-3">
-        {renderFn()}
-      </div>
-    )
-  }
-
   return (
-    <div className="space-y-3">
-      <InfoRow label="Resource ID" value={ticket.instance_id} mono copyable />
-      <InfoRow label="Endpoint / URL" value={ticket.environment_url} link={ticket.environment_url?.startsWith('http')} mono />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {sections[type] || (
+        <>
+          <CopyField label="Endpoint / URL" value={ticket.environment_url} isLink={ticket.environment_url?.startsWith('http')} />
+          <CopyField label="Resource ID" value={ticket.instance_id} />
+        </>
+      )}
     </div>
   )
 }
 
-function ManualStatusPanel({ ticket }) {
-  const status = ticket.status
-  const out = ticket.provisioning_output || {}
-  const resourceDetails = out.resource_details
+// ─── Lifetime / TTL bar ───────────────────────────────────────────────────────
 
-  if (status === 'pending_manual_setup') {
-    const sla = ticket.template?.resources?.sla_days || 2
-    return (
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 mb-6">
-        <div className="flex items-start gap-3">
-          <span className="text-2xl">⏳</span>
-          <div>
-            <p className="text-sm font-semibold text-amber-800">Awaiting Admin Setup</p>
-            <p className="text-xs text-amber-700 mt-1">
-              Your request has been approved and is in the admin queue.
-              Expected SLA: <strong>{sla} business day(s)</strong>.
-              You'll receive an email when your resource is live with connection details.
-            </p>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (status === 'in_progress') {
-    return (
-      <div className="bg-cyan-50 border border-cyan-200 rounded-xl p-5 mb-6">
-        <div className="flex items-start gap-3">
-          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-cyan-600 mt-0.5 shrink-0"></div>
-          <div>
-            <p className="text-sm font-semibold text-cyan-800">Admin Is Working On It</p>
-            <p className="text-xs text-cyan-700 mt-1">
-              An admin has picked up your request and is actively provisioning the resource.
-              You'll be notified by email when it's ready.
-            </p>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (status === 'active' && resourceDetails) {
-    return (
-      <div className="bg-green-50 border border-green-200 rounded-xl p-5 mb-6">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-sm font-semibold text-green-800">✅ Resource is Live</p>
-          {ticket.environment_url && (
-            <a href={ticket.environment_url} target="_blank" rel="noreferrer"
-              className="bg-green-600 hover:bg-green-700 text-white text-xs font-semibold px-4 py-2 rounded-lg transition-colors">
-              Open Resource
-            </a>
-          )}
-        </div>
-        <div className="space-y-2">
-          {ticket.environment_url && (
-            <InfoRow label="URL / Endpoint" value={ticket.environment_url} link />
-          )}
-          {ticket.instance_id && (
-            <InfoRow label="Resource ID / ARN" value={ticket.instance_id} mono copyable />
-          )}
-          <div>
-            <p className="text-xs text-gray-500 mb-1">Connection Details (from Admin)</p>
-            <pre className="text-[11px] bg-white border border-green-200 rounded-lg p-3 overflow-auto max-h-48 text-gray-700 whitespace-pre-wrap">
-              {resourceDetails}
-            </pre>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  return null
-}
-
-function CustomRequestPanel({ ticket }) {
-  const resources = ticket.requested_resources || {}
-  if (ticket.template_type !== 'custom_request' && ticket.template?.template_type !== 'custom_request') return null
+function LifetimeBar({ ticket, extendDays, setExtendDays, onExtend, extending }) {
+  const [showExtend, setShowExtend] = useState(false)
+  const created = new Date(ticket.created_at)
+  const expires = new Date(created)
+  expires.setDate(expires.getDate() + ticket.duration_days)
+  const total = ticket.duration_days * 86400000
+  const remaining = expires - Date.now()
+  const daysLeft = Math.ceil(remaining / 86400000)
+  const pct = Math.max(0, Math.min(100, (remaining / total) * 100))
+  const warn = daysLeft <= 3
 
   return (
-    <div className="bg-blue-50 border border-blue-200 rounded-xl p-5 mb-6">
-      <p className="text-sm font-semibold text-blue-800 mb-3">✨ Custom Resource Request Details</p>
-      <div className="grid grid-cols-2 gap-3">
-        {[
-          ['Resource Type', resources.resource_type_name],
-          ['Cloud Provider', resources.cloud_provider],
-          ['Preferred Region', resources.preferred_region],
-          ['Urgency', resources.urgency],
-          ['Estimated Usage', resources.estimated_usage],
-        ].map(([label, value]) => value && (
-          <div key={label}>
-            <p className="text-[10px] text-blue-600 uppercase font-bold">{label}</p>
-            <p className="text-sm text-blue-900 font-medium">{value}</p>
-          </div>
-        ))}
+    <div style={{ background: '#fff', border: '0.5px solid #E8E8E8', borderRadius: 8, padding: '14px 16px' }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: '#111', marginBottom: 10 }}>Environment lifetime</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+        <span style={{ fontSize: 10, color: '#AAA' }}>Created {created.toLocaleDateString()}</span>
+        <span style={{ fontSize: 10, fontWeight: 600, color: warn ? '#A32D2D' : '#555' }}>
+          {daysLeft <= 0 ? 'Expired' : `Expires in ${daysLeft} day${daysLeft === 1 ? '' : 's'} (${expires.toLocaleDateString()})`}
+        </span>
       </div>
+      <div style={{ height: 5, background: '#EBEBEB', borderRadius: 3, overflow: 'hidden', marginBottom: 12 }}>
+        <div style={{ height: '100%', width: `${pct}%`, background: warn ? '#E24B4A' : '#3B6D11', borderRadius: 3, transition: 'width 0.4s ease' }} />
+      </div>
+      {!showExtend ? (
+        <button onClick={() => setShowExtend(true)} style={{
+          fontSize: 11, fontWeight: 500, padding: '5px 12px', borderRadius: 5,
+          background: '#E6F1FB', color: '#185FA5', border: '0.5px solid #B0D0EF', cursor: 'pointer',
+        }}>
+          + Extend environment
+        </button>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 11, color: '#666' }}>Extend by</span>
+          <input
+            type="number" min="1" max="30" value={extendDays}
+            onChange={e => setExtendDays(parseInt(e.target.value))}
+            style={{ width: 52, fontSize: 12, padding: '4px 8px', border: '0.5px solid #DCDCDC', borderRadius: 5, outline: 'none', background: '#FAFAFA', fontFamily: 'inherit' }}
+          />
+          <span style={{ fontSize: 11, color: '#666' }}>days</span>
+          <button onClick={() => { onExtend(); setShowExtend(false) }} disabled={extending} style={{
+            fontSize: 11, fontWeight: 600, padding: '5px 12px', borderRadius: 5,
+            background: '#185FA5', color: '#fff', border: 'none', cursor: 'pointer', opacity: extending ? 0.6 : 1,
+          }}>
+            {extending ? 'Extending…' : 'Confirm'}
+          </button>
+          <button onClick={() => setShowExtend(false)} style={{ fontSize: 11, color: '#AAA', background: 'none', border: 'none', cursor: 'pointer' }}>Cancel</button>
+        </div>
+      )}
     </div>
   )
 }
+
+// ─── Provisioning timeline ────────────────────────────────────────────────────
+
+function ProvisioningTimeline({ status }) {
+  const steps = [
+    { key: 'pending_approval',     label: 'Submitted',       done: true  },
+    { key: 'approved',             label: 'Approved',        done: ['approved','provisioning','active'].includes(status) },
+    { key: 'provisioning',         label: 'Running Terraform', done: status === 'active', active: status === 'provisioning' },
+    { key: 'active',               label: 'Active',          done: status === 'active' },
+  ]
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 0, padding: '12px 16px', background: '#F9F9F9', borderRadius: 8, border: '0.5px solid #EBEBEB' }}>
+      {steps.map((s, i) => (
+        <div key={s.key} style={{ display: 'flex', alignItems: 'center', flex: i < steps.length - 1 ? 1 : 0 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+            <div style={{
+              width: 22, height: 22, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              background: s.done ? '#3B6D11' : s.active ? '#7F77DD' : '#E8E8E8',
+              border: `2px solid ${s.done ? '#3B6D11' : s.active ? '#7F77DD' : '#D0D0D0'}`,
+              animation: s.active ? 'cpulse 1.2s ease-in-out infinite' : 'none',
+            }}>
+              {s.done
+                ? <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="white" strokeWidth="2"><polyline points="2,5 4,8 8,2" /></svg>
+                : s.active
+                  ? <div style={{ width: 7, height: 7, borderRadius: '50%', border: '2px solid white', borderTopColor: 'transparent', animation: 'spin 0.7s linear infinite' }} />
+                  : null
+              }
+            </div>
+            <span style={{ fontSize: 9, color: s.done ? '#3B6D11' : s.active ? '#534AB7' : '#AAA', fontWeight: s.active || s.done ? 600 : 400, whiteSpace: 'nowrap' }}>{s.label}</span>
+          </div>
+          {i < steps.length - 1 && (
+            <div style={{ flex: 1, height: 2, background: s.done ? '#3B6D11' : '#E0E0E0', margin: '0 4px', marginBottom: 18, borderRadius: 1 }} />
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ─── File uploader ────────────────────────────────────────────────────────────
+
+function FileUploader({ ticketId }) {
+  const [uploading, setUploading] = useState(false)
+  const [result, setResult] = useState(null)
+
+  const handleFile = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setUploading(true)
+    setResult(null)
+    try {
+      const { data } = await getUploadUrl(ticketId, file.name)
+      const res = await fetch(data.upload_url, { method: 'PUT', body: file, mode: 'cors', headers: { 'Content-Type': data.content_type } })
+      if (res.ok) setResult({ type: 'success', msg: `✓ ${file.name} uploaded successfully` })
+      else throw new Error('Upload to S3 failed')
+    } catch (err) {
+      setResult({ type: 'error', msg: err.message || 'Upload failed' })
+    } finally { setUploading(false) }
+  }
+
+  return (
+    <div style={{ background: '#fff', border: '0.5px solid #E8E8E8', borderRadius: 8, padding: '14px 16px' }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: '#111', marginBottom: 4 }}>File upload</div>
+      <div style={{ fontSize: 11, color: '#888', marginBottom: 10 }}>Upload files directly to this S3 resource via pre-signed URL.</div>
+      {result && (
+        <div style={{
+          fontSize: 11, fontWeight: 500, padding: '6px 10px', borderRadius: 5, marginBottom: 10,
+          background: result.type === 'success' ? '#D4EDB8' : '#FCEBEB',
+          color: result.type === 'success' ? '#27500A' : '#791F1F',
+          border: `0.5px solid ${result.type === 'success' ? '#A8D98A' : '#FBBCBC'}`,
+        }}>
+          {result.msg}
+        </div>
+      )}
+      <label style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        border: `1.5px dashed ${uploading ? '#D0D0D0' : '#B0D0EF'}`,
+        borderRadius: 7, padding: '20px', cursor: uploading ? 'not-allowed' : 'pointer',
+        background: uploading ? '#FAFAFA' : '#F5F9FE', transition: 'all 0.15s', gap: 4,
+      }}>
+        {uploading
+          ? <><div style={{ width: 20, height: 20, border: '2px solid #D0D0D0', borderTop: '2px solid #185FA5', borderRadius: '50%', animation: 'spin 0.8s linear infinite', marginBottom: 4 }} /><span style={{ fontSize: 11, color: '#888' }}>Uploading…</span></>
+          : <><span style={{ fontSize: 20 }}>☁️</span><span style={{ fontSize: 11, fontWeight: 500, color: '#378ADD' }}>Select or drop file</span><span style={{ fontSize: 10, color: '#AAA' }}>Max 50MB</span></>
+        }
+        <input type="file" style={{ display: 'none' }} onChange={handleFile} disabled={uploading} />
+      </label>
+    </div>
+  )
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function TicketDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [ticket, setTicket] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [extending, setExtending] = useState(false)
+  const [toast, setToast] = useState(null)
   const [extendDays, setExtendDays] = useState(7)
-  const [showExtend, setShowExtend] = useState(false)
-  const [success, setSuccess] = useState('')
-
-  const [uploading, setUploading] = useState(false)
-  const [uploadSuccess, setUploadSuccess] = useState('')
-
+  const [extending, setExtending] = useState(false)
   const pollRef = useRef(null)
 
+  const showToast = (msg, type = 'success') => { setToast({ msg, type }); setTimeout(() => setToast(null), 4000) }
+
   useEffect(() => {
-    const load = () => {
-      getTicket(id)
-        .then(res => setTicket(res.data))
-        .catch(() => setError('Ticket not found'))
-        .finally(() => setLoading(false))
-    }
-    load()
+    getTicket(id).then(res => setTicket(res.data)).catch(() => showToast('Ticket not found', 'error')).finally(() => setLoading(false))
     return () => clearInterval(pollRef.current)
   }, [id])
 
   useEffect(() => {
     if (!ticket) return
-    const isTransient = ['provisioning', 'approved', 'expiring', 'pending_manual_setup', 'in_progress'].includes(ticket.status)
-    if (isTransient) {
-      pollRef.current = setInterval(() => {
-        getTicket(id)
-          .then(res => setTicket(res.data))
-          .catch(() => {})
-      }, 10000)
-    } else {
-      clearInterval(pollRef.current)
-    }
+    const transient = ['provisioning','approved','expiring','pending_manual_setup','in_progress'].includes(ticket.status)
+    clearInterval(pollRef.current)
+    if (transient) pollRef.current = setInterval(() => getTicket(id).then(r => setTicket(r.data)).catch(() => {}), 10000)
     return () => clearInterval(pollRef.current)
   }, [ticket?.status, id])
 
@@ -336,259 +383,271 @@ export default function TicketDetail() {
     setExtending(true)
     try {
       const res = await extendEnvironment(id, extendDays)
-      setSuccess(res.data.message)
-      setShowExtend(false)
+      showToast(res.data.message)
       getTicket(id).then(r => setTicket(r.data))
-      setTimeout(() => setSuccess(''), 4000)
-    } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to extend environment')
-    } finally {
-      setExtending(false)
-    }
+    } catch (err) { showToast(err.response?.data?.detail || 'Failed to extend', 'error') }
+    finally { setExtending(false) }
   }
 
-  const handleFileUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    console.log("Uploading file:", file.name);
-
-    setUploading(true);
-    setError('');
-    setUploadSuccess('');
-
-    try {
-      // 1. Get the secure Presigned URL from backend
-      const { data } = await getUploadUrl(id, file.name);
-
-      // 2. Upload directly to S3
-      const response = await fetch(data.upload_url, {
-        method: 'PUT',
-        body: file,
-        mode: 'cors',
-        headers: {
-          'Content-Type': data.content_type
-        }
-      });
-
-      if (response.ok) {
-        setUploadSuccess(`Successfully uploaded ${file.name}!`);
-        setTimeout(() => setUploadSuccess(''), 5000);
-      } else {
-        throw new Error('Direct upload to S3 failed. Check CORS settings.');
-      }
-    } catch (err) {
-      setError(err.response?.data?.detail || err.message || 'File upload failed');
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
-      </div>
-    )
+  const handleConsole = async () => {
+    try { const res = await getConsoleLink(id); window.open(res.data.url, '_blank') }
+    catch (err) { showToast(err.response?.data?.detail || 'IAM session required', 'error') }
   }
 
-  if (error || !ticket) {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        <Navbar />
-        <div className="max-w-3xl mx-auto px-6 py-12 text-center">
-          <p className="text-gray-400">{error || 'Ticket not found'}</p>
-          <button onClick={() => navigate('/dashboard')} className="mt-4 text-blue-600 text-sm hover:underline">
-            Back to Dashboard
-          </button>
-        </div>
-      </div>
-    )
-  }
+  if (loading) return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F3F4F6', fontFamily: 'system-ui' }}>
+      <div style={{ width: 32, height: 32, border: '2.5px solid #E0E0E0', borderTop: '2.5px solid #185FA5', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+    </div>
+  )
 
-  const expiresAt = new Date(ticket.created_at)
-  expiresAt.setDate(expiresAt.getDate() + ticket.duration_days)
+  if (!ticket) return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F3F4F6', fontFamily: 'system-ui', flexDirection: 'column', gap: 12 }}>
+      <div style={{ fontSize: 13, color: '#888' }}>Ticket not found</div>
+      <button onClick={() => navigate('/dashboard')} style={{ fontSize: 12, color: '#185FA5', background: 'none', border: 'none', cursor: 'pointer' }}>← Back to dashboard</button>
+    </div>
+  )
 
   const templateType = ticket.template_type || ticket.template?.template_type
   const meta = TEMPLATE_META[templateType] || { icon: '☁️', label: templateType || 'AWS Service' }
-  const isManual = ticket.template?.is_manual || ['pending_manual_setup', 'in_progress'].includes(ticket.status)
+  const isManual = ticket.template?.is_manual || ['pending_manual_setup','in_progress'].includes(ticket.status)
   const isCustom = templateType === 'custom_request'
+  const isActive = ticket.status === 'active' || ticket.status === 'expiring'
+  const isProvisioning = ['provisioning','approved'].includes(ticket.status)
+  const isManualPending = ticket.status === 'pending_manual_setup' || ticket.status === 'in_progress'
+  const isPending = ticket.status === 'pending_approval'
+  const isTerminal = ['expired','rejected','cancelled'].includes(ticket.status)
+  const showUpload = isActive && (templateType === 's3_static_site' || templateType === 's3_storage')
+
+  const created = new Date(ticket.created_at)
+  const expires = new Date(created)
+  expires.setDate(expires.getDate() + ticket.duration_days)
+
+  const manualOut = ticket.provisioning_output?.resource_details
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Navbar />
-      <div className="max-w-3xl mx-auto px-6 py-8">
+    <div style={{ minHeight: '100vh', background: '#F3F4F6', fontFamily: "'DM Sans', system-ui, sans-serif" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap');
+        * { box-sizing: border-box; }
+        @keyframes cpulse { 0%,100%{opacity:1} 50%{opacity:.2} }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes fadeUp { from { transform: translateY(5px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: #DDD; border-radius: 4px; }
+      `}</style>
 
-        <button
-          onClick={() => navigate('/dashboard')}
-          className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-900 mb-6 transition-colors"
-        >
-          ← Back to Dashboard
-        </button>
+      {/* Toast */}
+      {toast && (
+        <div style={{
+          position: 'fixed', top: 16, right: 16, zIndex: 300,
+          padding: '9px 14px', borderRadius: 7, fontSize: 12, fontWeight: 500,
+          background: toast.type === 'error' ? '#FCEBEB' : '#D4EDB8',
+          color: toast.type === 'error' ? '#791F1F' : '#27500A',
+          border: `0.5px solid ${toast.type === 'error' ? '#FBBCBC' : '#A8D98A'}`,
+          animation: 'fadeUp 0.2s ease', boxShadow: '0 4px 14px rgba(0,0,0,0.1)',
+        }}>
+          {toast.msg}
+        </div>
+      )}
 
-        {success && <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-6 text-sm">{success}</div>}
-        {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 text-sm">{error}</div>}
+      {/* Header bar */}
+      <div style={{ background: '#fff', borderBottom: '0.5px solid #E8E8E8', padding: '12px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button onClick={() => navigate('/dashboard')} style={{
+            display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#888',
+            background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+          }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6" /></svg>
+            Environments
+          </button>
+          <span style={{ color: '#DDD' }}>/</span>
+          <span style={{ fontSize: 12, color: '#333', fontFamily: 'DM Mono, monospace' }}>{ticket.ticket_number}</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {isActive && (
+            <button onClick={handleConsole} style={{
+              display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600,
+              padding: '6px 12px', borderRadius: 5, background: '#FF9900', color: '#fff', border: 'none', cursor: 'pointer',
+            }}>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+              Open in AWS Console
+            </button>
+          )}
+          <StatusPill status={ticket.status} />
+        </div>
+      </div>
 
-        {/* Header card */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-          <div className="flex items-start justify-between">
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center text-2xl">
+      {/* Page body */}
+      <div style={{ maxWidth: 860, margin: '0 auto', padding: '24px 20px', display: 'grid', gridTemplateColumns: '1fr 260px', gap: 16, alignItems: 'start' }}>
+
+        {/* Left column */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+          {/* Title card */}
+          <div style={{ background: '#fff', border: '0.5px solid #E8E8E8', borderRadius: 8, padding: '16px 18px', animation: 'fadeUp 0.2s ease' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 10, background: '#F4F4F4', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>
                 {meta.icon}
               </div>
               <div>
-                <h1 className="text-xl font-bold text-gray-900">{ticket.title}</h1>
-                <p className="text-sm text-gray-500 font-mono mt-0.5">{ticket.ticket_number}</p>
-                <p className="text-xs text-gray-400 mt-0.5">{meta.label}</p>
-              </div>
-            </div>
-            <span className={`text-xs font-semibold px-3 py-1.5 rounded-full ${STATUS_COLORS[ticket.status] || 'bg-gray-100 text-gray-600'}`}>
-              {STATUS_LABELS[ticket.status] || ticket.status}
-            </span>
-          </div>
-        </div>
-
-        {isCustom && <CustomRequestPanel ticket={ticket} />}
-
-        {isManual && (ticket.status === 'pending_manual_setup' || ticket.status === 'in_progress') && (
-          <ManualStatusPanel ticket={ticket} />
-        )}
-
-        {isManual && ticket.status === 'active' && <ManualStatusPanel ticket={ticket} />}
-
-        {!isManual && ticket.status === 'active' && (
-          <div className="bg-green-50 border border-green-200 rounded-xl p-5 mb-6">
-            <p className="text-sm font-semibold text-green-800 mb-4">✅ Environment is Live</p>
-            <ResourcePanel ticket={ticket} />
-          </div>
-        )}
-
-        {ticket.status === 'provisioning' && (
-          <div className="bg-purple-50 border border-purple-200 rounded-xl p-5 mb-6 flex items-center gap-3">
-            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-purple-600 shrink-0"></div>
-            <div>
-              <p className="text-sm font-semibold text-purple-800">Provisioning in progress...</p>
-              <p className="text-xs text-purple-600 mt-0.5">Your environment is being set up on AWS. This takes about 30–60 seconds. Page auto-refreshes.</p>
-            </div>
-          </div>
-        )}
-
-        {/* Resource Content Manager (Upload) */}
-        {ticket.status === 'active' &&
-         (templateType === 's3_static_site' || templateType === 's3_storage') && (
-          <div className="bg-blue-50 border border-blue-200 rounded-2xl p-6 mb-6 shadow-sm">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="bg-blue-600 p-2 rounded-lg text-white text-xl">☁️</div>
-              <div>
-                <h3 className="text-sm font-bold text-blue-900">Resource Content Manager</h3>
-                <p className="text-xs text-blue-700 mt-0.5">
-                  {templateType === 's3_static_site'
-                    ? "Upload 'index.html' to update your hosted website instantly."
-                    : "Securely upload files to your cloud storage bucket."}
-                </p>
-              </div>
-            </div>
-
-            {uploadSuccess && (
-              <div className="bg-green-100 border border-green-200 text-green-800 px-4 py-2 rounded-lg text-xs font-bold mb-4 animate-pulse">
-                {uploadSuccess}
-              </div>
-            )}
-
-            <label className={`
-              relative cursor-pointer border-2 border-dashed rounded-xl p-8
-              flex flex-col items-center justify-center transition-all
-              ${uploading ? 'bg-gray-100 border-gray-300 cursor-not-allowed' : 'bg-white border-blue-300 hover:border-blue-500 hover:bg-blue-50'}
-            `}>
-              <span className="text-sm font-bold text-blue-600 mb-1">
-                {uploading ? 'Finalizing secure transfer...' : 'Select or drag file to upload'}
-              </span>
-              <span className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">Max size: 50MB</span>
-
-              <input
-                type="file"
-                className="hidden"
-                onChange={handleFileUpload}
-                disabled={uploading}
-              />
-
-              {uploading && (
-                <div className="absolute inset-0 bg-white/60 flex items-center justify-center rounded-xl">
-                   <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: '#111' }}>{ticket.title}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11, color: '#888' }}>{meta.label}</span>
+                  <span style={{ width: 3, height: 3, borderRadius: '50%', background: '#CCC' }} />
+                  <span style={{ fontSize: 11, fontFamily: 'DM Mono, monospace', color: '#AAA' }}>{ticket.ticket_number}</span>
+                  <span style={{ width: 3, height: 3, borderRadius: '50%', background: '#CCC' }} />
+                  <span style={{ fontSize: 11, color: '#AAA' }}>Created {created.toLocaleDateString()}</span>
                 </div>
-              )}
-            </label>
+              </div>
+            </div>
           </div>
-        )}
 
-        {ticket.status === 'active' && (
-          <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6">
-            <div className="flex items-center justify-between">
+          {/* Provisioning timeline */}
+          {(isProvisioning || isPending) && !isManual && (
+            <div style={{ animation: 'fadeUp 0.25s ease' }}>
+              <ProvisioningTimeline status={ticket.status} />
+            </div>
+          )}
+
+          {/* Provisioning spinner */}
+          {isProvisioning && (
+            <div style={{ background: '#E5E3FD', border: '0.5px solid #C9C6F7', borderRadius: 8, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, animation: 'fadeUp 0.3s ease' }}>
+              <div style={{ width: 18, height: 18, border: '2.5px solid #C9C6F7', borderTop: '2.5px solid #534AB7', borderRadius: '50%', animation: 'spin 0.75s linear infinite', flexShrink: 0 }} />
               <div>
-                <p className="text-sm font-semibold text-gray-800">Extend Environment</p>
-                <p className="text-xs text-gray-400 mt-0.5">Add more days to keep this environment alive</p>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#3C3489' }}>Terraform is running</div>
+                <div style={{ fontSize: 11, color: '#6059C0', marginTop: 2 }}>Your environment is being provisioned on AWS. This takes 30–60 seconds. Page auto-refreshes.</div>
               </div>
-              <button
-                onClick={() => setShowExtend(!showExtend)}
-                className="text-xs bg-blue-50 text-blue-600 hover:bg-blue-100 font-semibold px-4 py-2 rounded-lg transition-colors"
-              >
-                {showExtend ? 'Cancel' : '+ Extend'}
-              </button>
             </div>
-            {showExtend && (
-              <div className="mt-4 flex items-center gap-3">
-                <input
-                  type="number" min="1" max="30"
-                  value={extendDays}
-                  onChange={e => setExtendDays(parseInt(e.target.value))}
-                  className="w-24 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <span className="text-sm text-gray-500">additional days</span>
-                <button
-                  onClick={handleExtend}
-                  disabled={extending}
-                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold px-4 py-2 rounded-lg disabled:opacity-50"
-                >
-                  {extending ? 'Extending...' : 'Confirm Extension'}
-                </button>
+          )}
+
+          {/* Manual pending / in progress */}
+          {isManualPending && (
+            <div style={{
+              background: ticket.status === 'in_progress' ? '#D2F0E7' : '#FAEEDA',
+              border: `0.5px solid ${ticket.status === 'in_progress' ? '#9FD9C2' : '#F5D08A'}`,
+              borderRadius: 8, padding: '14px 16px', display: 'flex', alignItems: 'flex-start', gap: 12, animation: 'fadeUp 0.3s ease',
+            }}>
+              <span style={{ fontSize: 20 }}>{ticket.status === 'in_progress' ? '🔧' : '⏳'}</span>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: ticket.status === 'in_progress' ? '#085041' : '#633806' }}>
+                  {ticket.status === 'in_progress' ? 'Admin is working on it' : 'Awaiting admin setup'}
+                </div>
+                <div style={{ fontSize: 11, color: ticket.status === 'in_progress' ? '#0F6E56' : '#854F0B', marginTop: 3 }}>
+                  {ticket.status === 'in_progress'
+                    ? 'An admin has picked up your request and is actively provisioning. You\'ll be notified by email when ready.'
+                    : `Your request is approved and queued. SLA: ${ticket.template?.resources?.sla_days || 2} business day(s). Email notification when live.`
+                  }
+                </div>
               </div>
-            )}
-          </div>
-        )}
-
-        <div className="grid grid-cols-2 gap-6 mb-6">
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <h2 className="text-sm font-semibold text-gray-700 mb-4">Request Details</h2>
-            <div className="space-y-3">
-              <InfoRow label="Environment Type" value={meta.label} />
-              <InfoRow label="Duration" value={`${ticket.duration_days} days`} />
-              <InfoRow label="Estimated Cost" value={`$${ticket.estimated_cost_usd}`} />
-              <InfoRow label="Requested" value={new Date(ticket.created_at).toLocaleString()} />
-              <InfoRow label="Expires" value={expiresAt.toLocaleString()} />
-              {ticket.requester_name && <InfoRow label="Requested By" value={ticket.requester_name} />}
             </div>
-          </div>
+          )}
 
-          <div className="bg-white rounded-xl border border-gray-200 p-5">
-            <h2 className="text-sm font-semibold text-gray-700 mb-4">Infrastructure</h2>
-            <div className="space-y-3">
-              {!isManual && ticket.status === 'active' ? (
-                <ResourcePanel ticket={ticket} />
-              ) : (
-                <>
-                  <InfoRow label="Resource ID" value={ticket.instance_id} mono />
-                  <InfoRow label="Endpoint / URL" value={ticket.environment_url}
-                    link={ticket.environment_url?.startsWith('http')} mono />
-                </>
-              )}
+          {/* Rejected / cancelled notice */}
+          {(ticket.status === 'rejected' || ticket.status === 'cancelled') && ticket.rejection_reason && (
+            <div style={{ background: '#FCEBEB', border: '0.5px solid #FBBCBC', borderRadius: 8, padding: '14px 16px', animation: 'fadeUp 0.25s ease' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#791F1F', marginBottom: 4 }}>
+                {ticket.status === 'rejected' ? 'Rejection reason' : 'Cancellation note'}
+              </div>
+              <div style={{ fontSize: 12, color: '#A32D2D' }}>{ticket.rejection_reason}</div>
             </div>
-          </div>
+          )}
+
+          {/* Custom request details */}
+          {isCustom && ticket.requested_resources && (
+            <div style={{ background: '#fff', border: '0.5px solid #E8E8E8', borderRadius: 8, padding: '14px 16px', animation: 'fadeUp 0.3s ease' }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#111', marginBottom: 10 }}>✨ Custom request details</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                {[
+                  ['Resource type', ticket.requested_resources.resource_type_name],
+                  ['Cloud provider', ticket.requested_resources.cloud_provider],
+                  ['Preferred region', ticket.requested_resources.preferred_region],
+                  ['Urgency', ticket.requested_resources.urgency],
+                  ['Estimated usage', ticket.requested_resources.estimated_usage],
+                ].filter(([, v]) => v).map(([label, value]) => (
+                  <div key={label}>
+                    <div style={labelSt}>{label}</div>
+                    <div style={{ fontSize: 12, color: '#111', marginTop: 2 }}>{value}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Active resource endpoints */}
+          {isActive && !isManual && (
+            <div style={{ background: '#F0FAF5', border: '0.5px solid #9FD9C2', borderRadius: 8, padding: '14px 16px', animation: 'fadeUp 0.3s ease' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#0F6E56" strokeWidth="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#085041' }}>Resource is live</span>
+              </div>
+              <ResourceEndpoints ticket={ticket} />
+            </div>
+          )}
+
+          {/* Manual active resource details */}
+          {isActive && isManual && manualOut && (
+            <div style={{ background: '#F0FAF5', border: '0.5px solid #9FD9C2', borderRadius: 8, padding: '14px 16px', animation: 'fadeUp 0.3s ease' }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#085041', marginBottom: 10 }}>✅ Resource is live</div>
+              {ticket.environment_url && <CopyField label="Endpoint / URL" value={ticket.environment_url} isLink={ticket.environment_url.startsWith('http')} />}
+              {ticket.instance_id && <div style={{ marginTop: 10 }}><CopyField label="Resource ID / ARN" value={ticket.instance_id} /></div>}
+              <div style={{ marginTop: 12 }}>
+                <div style={labelSt}>Connection details (from admin)</div>
+                <pre style={{ fontSize: 10, fontFamily: 'DM Mono, monospace', background: '#fff', border: '0.5px solid #C8EDD9', borderRadius: 5, padding: '8px 10px', marginTop: 6, whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 180, overflowY: 'auto', color: '#111' }}>
+                  {manualOut}
+                </pre>
+              </div>
+            </div>
+          )}
+
+          {/* Lifetime bar (active only) */}
+          {isActive && (
+            <LifetimeBar
+              ticket={ticket}
+              extendDays={extendDays}
+              setExtendDays={setExtendDays}
+              onExtend={handleExtend}
+              extending={extending}
+            />
+          )}
+
+          {/* File uploader */}
+          {showUpload && <FileUploader ticketId={id} />}
+
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h2 className="text-sm font-semibold text-gray-700 mb-2">Justification</h2>
-          <p className="text-sm text-gray-600">{ticket.justification}</p>
-        </div>
+        {/* Right sidebar */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, animation: 'fadeUp 0.3s ease' }}>
 
+          {/* Cost */}
+          <div style={{ background: '#fff', border: '0.5px solid #E8E8E8', borderRadius: 8, padding: '14px 16px' }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#AAA', letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: 8 }}>Cost</div>
+            <div style={{ fontSize: 22, fontWeight: 600, color: '#111' }}>${ticket.estimated_cost_usd ?? '0.00'}</div>
+            <div style={{ fontSize: 10, color: '#AAA', marginTop: 3 }}>estimated total for {ticket.duration_days} days</div>
+          </div>
+
+          {/* Request details */}
+          <div style={{ background: '#fff', border: '0.5px solid #E8E8E8', borderRadius: 8, padding: '14px 16px' }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#AAA', letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: 10 }}>Request details</div>
+            <SidebarRow label="Service" value={meta.label} />
+            <SidebarRow label="Duration" value={`${ticket.duration_days} days`} />
+            <SidebarRow label="Requested" value={created.toLocaleDateString()} />
+            {isActive && <SidebarRow label="Expires" value={expires.toLocaleDateString()} />}
+            {ticket.requester_name && <SidebarRow label="Requested by" value={ticket.requester_name} />}
+            {ticket.approver_name && <SidebarRow label="Approved by" value={ticket.approver_name} />}
+          </div>
+
+          {/* Justification */}
+          <div style={{ background: '#fff', border: '0.5px solid #E8E8E8', borderRadius: 8, padding: '14px 16px' }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#AAA', letterSpacing: '0.04em', textTransform: 'uppercase', marginBottom: 8 }}>Justification</div>
+            <div style={{ fontSize: 12, color: '#555', lineHeight: 1.6, fontStyle: 'italic' }}>"{ticket.justification}"</div>
+          </div>
+
+          {/* Ticket ID */}
+          <div style={{ background: '#FAFAFA', border: '0.5px solid #EBEBEB', borderRadius: 8, padding: '10px 14px' }}>
+            <div style={labelSt}>Ticket</div>
+            <div style={{ fontSize: 11, fontFamily: 'DM Mono, monospace', color: '#378ADD', marginTop: 3 }}>{ticket.ticket_number}</div>
+          </div>
+
+        </div>
       </div>
     </div>
   )

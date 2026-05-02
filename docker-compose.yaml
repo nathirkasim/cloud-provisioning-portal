@@ -70,10 +70,6 @@ services:
     container_name: portal_frontend
     ports:
       - "5173:5173"
-    environment:
-      - VITE_API_URL=http://localhost:8000
-    depends_on:
-      - backend
 
 volumes:
   postgres_data:

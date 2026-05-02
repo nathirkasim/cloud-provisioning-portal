@@ -10,13 +10,12 @@ import ResetPassword from './pages/ResetPassword'
 function ProtectedRoute({ children, adminOnly = false }) {
   const { user, loading } = useAuth()
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
-      </div>
-    )
-  }
+  if (loading) return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F3F4F6', fontFamily: 'system-ui' }}>
+      <div style={{ width: 32, height: 32, border: '2.5px solid #E0E0E0', borderTop: '2.5px solid #185FA5', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  )
 
   if (!user) return <Navigate to="/login" replace />
   if (adminOnly && !['admin', 'approver'].includes(user.role)) {
@@ -28,23 +27,27 @@ function ProtectedRoute({ children, adminOnly = false }) {
 function AppRoutes() {
   const { user, loading } = useAuth()
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
-      </div>
-    )
-  }
+  if (loading) return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F3F4F6', fontFamily: 'system-ui' }}>
+      <div style={{ width: 32, height: 32, border: '2.5px solid #E0E0E0', borderTop: '2.5px solid #185FA5', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  )
+
+  const adminHome = <Navigate to="/admin" replace />
+  const userHome  = <Navigate to="/dashboard" replace />
+  const authHome  = user ? (['admin','approver'].includes(user.role) ? adminHome : userHome) : null
 
   return (
     <Routes>
-      <Route path="/login" element={!user ? <Login /> : <Navigate to={['admin','approver'].includes(user.role) ? '/admin' : '/dashboard'} replace />} />
-      <Route path="/register" element={!user ? <Register /> : <Navigate to="/dashboard" replace />} />
-      <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-      <Route path="/tickets/:id" element={<ProtectedRoute><TicketDetail /></ProtectedRoute>} />
-      <Route path="/admin" element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
-      <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route path="/login"          element={!user ? <Login />    : authHome} />
+      <Route path="/register"       element={!user ? <Register /> : userHome} />
       <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/dashboard"      element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      <Route path="/tickets/:id"    element={<ProtectedRoute><TicketDetail /></ProtectedRoute>} />
+      <Route path="/admin"          element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
+      <Route path="/"               element={<Navigate to="/login" replace />} />
+      <Route path="*"               element={<Navigate to="/login" replace />} />
     </Routes>
   )
 }

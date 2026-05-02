@@ -1,87 +1,314 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import Navbar from '../components/Navbar'
 import {
   getMyTickets, getTemplates, createTicket, estimateCost,
   getQuota, getConsoleLink, autoCheckTicket, cancelTicket, createCustomRequest
 } from '../services/api'
 
-const STATUS_COLORS = {
-  pending_approval:    'bg-yellow-100 text-yellow-800',
-  approved:            'bg-blue-100 text-blue-800',
-  provisioning:        'bg-purple-100 text-purple-800',
-  active:              'bg-green-100 text-green-800',
-  expiring:            'bg-orange-100 text-orange-800',
-  expired:             'bg-gray-100 text-gray-800',
-  rejected:            'bg-red-100 text-red-800',
-  cancelled:           'bg-gray-100 text-gray-500',
-  pending_manual_setup:'bg-amber-100 text-amber-800',
-  in_progress:         'bg-cyan-100 text-cyan-800',
+const STATUS_CONFIG = {
+  pending_approval:     { label: 'Pending approval',     color: '#BA7517', bg: '#FAEEDA', dot: '#854F0B', pulse: false },
+  approved:             { label: 'Approved',              color: '#185FA5', bg: '#D6E9FB', dot: '#185FA5', pulse: false },
+  provisioning:         { label: 'Provisioning',          color: '#534AB7', bg: '#E5E3FD', dot: '#534AB7', pulse: true  },
+  active:               { label: 'Active',                color: '#27500A', bg: '#D4EDB8', dot: '#3B6D11', pulse: false },
+  expiring:             { label: 'Expiring soon',         color: '#791F1F', bg: '#FCEBEB', dot: '#A32D2D', pulse: true  },
+  expired:              { label: 'Expired',               color: '#666',    bg: '#F0F0F0', dot: '#999',    pulse: false },
+  rejected:             { label: 'Rejected',              color: '#791F1F', bg: '#FCEBEB', dot: '#A32D2D', pulse: false },
+  cancelled:            { label: 'Cancelled',             color: '#888',    bg: '#F0F0F0', dot: '#AAA',    pulse: false },
+  pending_manual_setup: { label: 'Awaiting admin setup',  color: '#633806', bg: '#FAEEDA', dot: '#854F0B', pulse: true  },
+  in_progress:          { label: 'Admin working on it',   color: '#085041', bg: '#D2F0E7', dot: '#1D9E75', pulse: true  },
 }
 
-const STATUS_LABELS = {
-  pending_approval:     'Pending Approval',
-  approved:             'Approved',
-  provisioning:         'Provisioning...',
-  active:               'Active',
-  expiring:             'Expiring...',
-  expired:              'Expired',
-  rejected:             'Rejected',
-  cancelled:            'Cancelled',
-  pending_manual_setup: 'Awaiting Admin Setup',
-  in_progress:          'Admin Working On It',
+const BORDER_COLOR = {
+  active:               '#3B6D11',
+  expiring:             '#E24B4A',
+  provisioning:         '#7F77DD',
+  pending_approval:     '#BA7517',
+  pending_manual_setup: '#BA7517',
+  in_progress:          '#1D9E75',
+  rejected:             '#E24B4A',
+  expired:              '#CCC',
+  cancelled:            '#CCC',
+  approved:             '#378ADD',
 }
 
-// Icons and tier metadata per template_type
 const TEMPLATE_META = {
-  web_app:             { icon: '🖥️',  label: 'EC2 Web App',        tier: 1, tierColor: 'bg-green-100 text-green-700' },
-  database:            { icon: '🗄️',  label: 'RDS Database',       tier: 1, tierColor: 'bg-green-100 text-green-700' },
-  serverless:          { icon: '⚡',  label: 'Lambda Serverless',   tier: 1, tierColor: 'bg-green-100 text-green-700' },
-  s3_static_site:      { icon: '🌐',  label: 'S3 Static Site',      tier: 1, tierColor: 'bg-green-100 text-green-700' },
-  s3_storage:          { icon: '🪣',  label: 'S3 Storage',          tier: 1, tierColor: 'bg-green-100 text-green-700' },
-  sns_topic:           { icon: '📣',  label: 'SNS Topic',           tier: 1, tierColor: 'bg-green-100 text-green-700' },
-  dynamodb:            { icon: '⚡',  label: 'DynamoDB Table',      tier: 1, tierColor: 'bg-green-100 text-green-700' },
-  ecr_repository:      { icon: '📦',  label: 'ECR Repository',      tier: 1, tierColor: 'bg-green-100 text-green-700' },
-  ecs_container:       { icon: '🐳',  label: 'ECS Fargate',         tier: 1, tierColor: 'bg-green-100 text-green-700' },
-  elasticache_redis:   { icon: '🔴',  label: 'ElastiCache Redis',   tier: 2, tierColor: 'bg-amber-100 text-amber-700' },
-  cloudfront_cdn:      { icon: '🌍',  label: 'CloudFront CDN',      tier: 2, tierColor: 'bg-amber-100 text-amber-700' },
-  rds_read_replica:    { icon: '🗄️',  label: 'RDS Read Replica',   tier: 2, tierColor: 'bg-amber-100 text-amber-700' },
-  secrets_manager:     { icon: '🔐',  label: 'Secrets Manager',     tier: 2, tierColor: 'bg-amber-100 text-amber-700' },
-  waf_rules:           { icon: '🛡️',  label: 'WAF Rules',           tier: 2, tierColor: 'bg-amber-100 text-amber-700' },
-  kinesis_stream:      { icon: '🌊',  label: 'Kinesis Stream',      tier: 2, tierColor: 'bg-amber-100 text-amber-700' },
-  eks_cluster:         { icon: '☸️',  label: 'EKS Cluster',         tier: 3, tierColor: 'bg-red-100 text-red-700' },
-  codepipeline:        { icon: '🔄',  label: 'CodePipeline / CI-CD', tier: 3, tierColor: 'bg-red-100 text-red-700' },
-  opensearch:          { icon: '🔍',  label: 'OpenSearch',          tier: 3, tierColor: 'bg-red-100 text-red-700' },
-  redshift:            { icon: '🏢',  label: 'Redshift',            tier: 3, tierColor: 'bg-red-100 text-red-700' },
-  custom_request:      { icon: '✨',  label: 'Custom Request',      tier: null, tierColor: 'bg-gray-100 text-gray-600' },
+  web_app:             { icon: '🖥️', label: 'EC2 Web App',         tier: 1, cost: '~$0.01/hr', free: true  },
+  database:            { icon: '🗄️', label: 'RDS PostgreSQL',       tier: 1, cost: '~$0.02/hr', free: false },
+  serverless:          { icon: '⚡',  label: 'Lambda Serverless',    tier: 1, cost: 'free tier',  free: true  },
+  s3_static_site:      { icon: '🌐', label: 'S3 Static Site',       tier: 1, cost: 'free tier',  free: true  },
+  s3_storage:          { icon: '🪣', label: 'S3 Storage Bucket',    tier: 1, cost: 'free tier',  free: true  },
+  sns_topic:           { icon: '📣', label: 'SNS Topic',            tier: 1, cost: 'free tier',  free: true  },
+  dynamodb:            { icon: '⚡',  label: 'DynamoDB Table',       tier: 1, cost: 'free tier',  free: true  },
+  ecr_repository:      { icon: '📦', label: 'ECR Repository',       tier: 1, cost: 'free tier',  free: true  },
+  ecs_container:       { icon: '🐳', label: 'ECS Fargate',          tier: 1, cost: '~$9/mo',     free: false },
+  elasticache_redis:   { icon: '🔴', label: 'ElastiCache Redis',    tier: 2, cost: '~$12/mo',    free: false },
+  cloudfront_cdn:      { icon: '🌍', label: 'CloudFront CDN',       tier: 2, cost: '~$5/mo',     free: false },
+  rds_read_replica:    { icon: '🗄️', label: 'RDS Read Replica',    tier: 2, cost: '~$15/mo',    free: false },
+  secrets_manager:     { icon: '🔐', label: 'Secrets Manager',      tier: 2, cost: '~$0.40/mo',  free: false },
+  waf_rules:           { icon: '🛡️', label: 'WAF Rules',            tier: 2, cost: '~$5/mo',     free: false },
+  kinesis_stream:      { icon: '🌊', label: 'Kinesis Stream',       tier: 2, cost: '~$15/mo',    free: false },
+  eks_cluster:         { icon: '☸️', label: 'EKS Cluster',          tier: 3, cost: '~$72/mo',    free: false },
+  codepipeline:        { icon: '🔄', label: 'CodePipeline / CI-CD', tier: 3, cost: '~$1/mo',     free: false },
+  opensearch:          { icon: '🔍', label: 'OpenSearch',           tier: 3, cost: '~$25/mo',    free: false },
+  redshift:            { icon: '🏢', label: 'Redshift',             tier: 3, cost: '~$180/mo',   free: false },
+  custom_request:      { icon: '✨', label: 'Custom Request',       tier: null, cost: 'varies',  free: false },
 }
 
-const TIER_LABELS = { 1: 'Instant', 2: '1–2 day SLA', 3: '3–5 day SLA' }
-
-function getTemplateMeta(templateType) {
-  return TEMPLATE_META[templateType] || { icon: '☁️', label: templateType || 'AWS Service', tier: null, tierColor: 'bg-gray-100 text-gray-600' }
+const TIER_INFO = {
+  1: { label: 'Tier 1 — Instant',    desc: 'Auto-provisioned by Terraform. Usually live in under 60 seconds.', color: '#27500A', bg: '#D4EDB8' },
+  2: { label: 'Tier 2 — Managed',    desc: '1–2 business day SLA. Admin-provisioned and configured for you.', color: '#633806', bg: '#FAEEDA' },
+  3: { label: 'Tier 3 — Enterprise', desc: '3–5 business day SLA. Complex infra requiring architecture review.', color: '#791F1F', bg: '#FCEBEB' },
 }
 
-// Custom resource request form
+const AWS_REGIONS = [
+  'ap-south-1','us-east-1','us-east-2','us-west-1','us-west-2',
+  'eu-west-1','eu-west-2','eu-central-1','ap-southeast-1','ap-southeast-2',
+  'ap-northeast-1','ca-central-1','sa-east-1',
+]
+
+function getMeta(templateType) {
+  return TEMPLATE_META[templateType] || { icon: '☁️', label: templateType || 'AWS Service', tier: null, cost: 'varies', free: false }
+}
+
+function StatusPill({ status }) {
+  const cfg = STATUS_CONFIG[status] || { label: status, color: '#666', bg: '#eee', dot: '#999', pulse: false }
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 5,
+      fontSize: 11, fontWeight: 500, padding: '3px 9px', borderRadius: 20,
+      background: cfg.bg, color: cfg.color, whiteSpace: 'nowrap',
+    }}>
+      <span style={{
+        width: 6, height: 6, borderRadius: '50%', background: cfg.dot, flexShrink: 0,
+        animation: cfg.pulse ? 'cpulse 1.4s ease-in-out infinite' : 'none',
+      }} />
+      {cfg.label}
+    </span>
+  )
+}
+
+function ExpiryBar({ ticket }) {
+  if (ticket.status !== 'active' && ticket.status !== 'expiring') return null
+  const created = new Date(ticket.created_at)
+  const expires = new Date(created)
+  expires.setDate(expires.getDate() + ticket.duration_days)
+  const total = ticket.duration_days * 86400000
+  const remaining = expires - Date.now()
+  const daysLeft = Math.ceil(remaining / 86400000)
+  const pct = Math.max(0, Math.min(100, (remaining / total) * 100))
+  const warn = daysLeft <= 3
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+        <span style={{ fontSize: 10, color: '#999' }}>Expires</span>
+        <span style={{ fontSize: 10, fontWeight: 600, color: warn ? '#A32D2D' : '#666' }}>
+          {daysLeft <= 0 ? 'Today' : `in ${daysLeft}d`}
+        </span>
+      </div>
+      <div style={{ height: 3, background: '#EBEBEB', borderRadius: 2, overflow: 'hidden' }}>
+        <div style={{
+          height: '100%', borderRadius: 2, width: `${pct}%`,
+          background: warn ? '#E24B4A' : '#3B6D11', transition: 'width 0.3s ease',
+        }} />
+      </div>
+    </div>
+  )
+}
+
+function EnvironmentCard({ ticket, onConsole, onCancel, onClick }) {
+  const templateType = ticket.template?.template_type || ticket.template_type
+  const meta = getMeta(templateType)
+  const borderColor = BORDER_COLOR[ticket.status] || '#DDD'
+  const isActive = ticket.status === 'active'
+  const isPending = ticket.status === 'pending_approval'
+  const isManual = ticket.status === 'pending_manual_setup' || ticket.status === 'in_progress'
+  const [hov, setHov] = useState(false)
+
+  return (
+    <div
+      onClick={() => onClick(ticket.id)}
+      onMouseEnter={() => setHov(true)}
+      onMouseLeave={() => setHov(false)}
+      style={{
+        background: '#fff', borderRadius: 10, cursor: 'pointer',
+        border: `0.5px solid ${hov ? '#C0C0C0' : '#E4E4E4'}`,
+        borderLeft: `3px solid ${borderColor}`,
+        padding: '14px 16px',
+        boxShadow: hov ? '0 2px 12px rgba(0,0,0,0.07)' : 'none',
+        transition: 'box-shadow 0.15s, border-color 0.15s',
+        display: 'grid', gridTemplateColumns: '40px 1fr auto', gap: 12, alignItems: 'start',
+      }}
+    >
+      <div style={{
+        width: 40, height: 40, borderRadius: 8, background: '#F4F4F4',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0,
+      }}>
+        {meta.icon}
+      </div>
+
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontWeight: 600, fontSize: 13, color: '#111', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {ticket.title}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11, color: '#777' }}>{meta.label}</span>
+          {meta.tier && (
+            <>
+              <span style={{ width: 3, height: 3, borderRadius: '50%', background: '#CCC', flexShrink: 0 }} />
+              <span style={{ fontSize: 11, color: '#999' }}>Tier {meta.tier}</span>
+            </>
+          )}
+          <span style={{ width: 3, height: 3, borderRadius: '50%', background: '#CCC', flexShrink: 0 }} />
+          <span style={{ fontSize: 10, color: '#BBB', fontFamily: 'monospace' }}>{ticket.ticket_number}</span>
+        </div>
+        {ticket.environment_url && isActive && (
+          <div style={{ fontSize: 10, color: '#378ADD', fontFamily: 'monospace', marginTop: 5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {ticket.environment_url}
+          </div>
+        )}
+        <ExpiryBar ticket={ticket} />
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
+        <StatusPill status={ticket.status} />
+        <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+          {isActive && (
+            <button
+              onClick={e => { e.stopPropagation(); onConsole(ticket.id) }}
+              style={{ fontSize: 10, fontWeight: 600, padding: '4px 10px', borderRadius: 5, background: '#FF9900', color: '#fff', border: 'none', cursor: 'pointer' }}
+            >
+              AWS Console
+            </button>
+          )}
+          {isPending && (
+            <button
+              onClick={e => { e.stopPropagation(); onCancel(ticket.id, ticket.ticket_number) }}
+              style={{ fontSize: 10, fontWeight: 500, padding: '4px 10px', borderRadius: 5, background: 'transparent', color: '#A32D2D', border: '0.5px solid #FBBCBC', cursor: 'pointer' }}
+            >
+              Cancel
+            </button>
+          )}
+          {isManual && (
+            <span style={{ fontSize: 10, color: '#854F0B', fontWeight: 500 }}>Admin working on it</span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TemplatePicker({ templates, selected, onSelect }) {
+  const [activeTier, setActiveTier] = useState(1)
+  const tier1 = templates.filter(t => t.tier === 1 && t.template_type !== 'custom_request')
+  const tier2 = templates.filter(t => t.tier === 2 && t.template_type !== 'custom_request')
+  const tier3 = templates.filter(t => t.tier === 3 && t.template_type !== 'custom_request')
+  const tierMap = { 1: tier1, 2: tier2, 3: tier3 }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', borderBottom: '0.5px solid #EBEBEB' }}>
+        {[1, 2, 3].map(t => (
+          <button key={t} onClick={() => setActiveTier(t)} style={{
+            padding: '8px 12px', fontSize: 11, fontWeight: 500, cursor: 'pointer',
+            color: activeTier === t ? '#111' : '#999', background: 'transparent', border: 'none',
+            borderBottom: activeTier === t ? '2px solid #111' : '2px solid transparent', marginBottom: -0.5,
+          }}>
+            Tier {t}
+            <span style={{ marginLeft: 4, fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 4, background: TIER_INFO[t].bg, color: TIER_INFO[t].color }}>
+              {['Instant', '1–2d', '3–5d'][t - 1]}
+            </span>
+          </button>
+        ))}
+        <button onClick={() => onSelect('custom')} style={{
+          marginLeft: 'auto', padding: '8px 12px', fontSize: 11, fontWeight: 500, cursor: 'pointer',
+          color: selected === 'custom' ? '#111' : '#999', background: 'transparent', border: 'none',
+          borderBottom: selected === 'custom' ? '2px solid #111' : '2px solid transparent', marginBottom: -0.5,
+        }}>
+          ✨ Custom
+        </button>
+      </div>
+      <div style={{ padding: '6px 10px', background: '#FAFAFA', borderBottom: '0.5px solid #EBEBEB', fontSize: 10, color: '#888' }}>
+        {TIER_INFO[activeTier].desc}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 7, padding: '10px 10px 8px' }}>
+        {(tierMap[activeTier] || []).map(t => {
+          const meta = getMeta(t.template_type)
+          const isSel = selected === String(t.id)
+          return (
+            <div key={t.id} onClick={() => onSelect(String(t.id))} style={{
+              border: isSel ? '1.5px solid #185FA5' : '0.5px solid #E4E4E4',
+              borderRadius: 7, padding: '9px 10px', cursor: 'pointer',
+              background: isSel ? '#EDF4FC' : '#fff', position: 'relative',
+              transition: 'border-color 0.12s, background 0.12s',
+            }}>
+              {isSel && (
+                <div style={{ position: 'absolute', top: 6, right: 6, width: 13, height: 13, borderRadius: '50%', background: '#185FA5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <svg width="7" height="7" viewBox="0 0 10 10" fill="none" stroke="white" strokeWidth="2.2"><polyline points="2,5 4,8 8,2" /></svg>
+                </div>
+              )}
+              <div style={{ fontSize: 17, marginBottom: 4 }}>{meta.icon}</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#111' }}>{meta.label}</div>
+              <div style={{ fontSize: 10, color: '#999', marginTop: 1 }}>{t.description || meta.cost}</div>
+              <div style={{ marginTop: 5 }}>
+                {meta.free
+                  ? <span style={{ fontSize: 9, fontWeight: 600, background: '#D4EDB8', color: '#27500A', padding: '1px 5px', borderRadius: 3 }}>free tier</span>
+                  : <span style={{ fontSize: 9, color: '#AAA' }}>{meta.cost}</span>
+                }
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      {selected && selected !== 'custom' && (() => {
+        const t = templates.find(t => String(t.id) === selected)
+        if (!t) return null
+        const meta = getMeta(t.template_type)
+        return (
+          <div style={{ padding: '7px 10px', borderTop: '0.5px solid #EBEBEB', background: '#FAFAFA', fontSize: 11, color: '#666' }}>
+            Selected: <strong style={{ color: '#111' }}>{meta.label}</strong> · {meta.cost}
+            {t.is_manual && <span style={{ marginLeft: 6, fontSize: 10, color: '#854F0B', fontWeight: 500 }}>requires admin setup</span>}
+          </div>
+        )
+      })()}
+    </div>
+  )
+}
+
+function Field({ label, children }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10, fontWeight: 600, color: '#999', letterSpacing: '0.05em', marginBottom: 4, textTransform: 'uppercase' }}>{label}</div>
+      {children}
+    </div>
+  )
+}
+
+const inputSt = {
+  width: '100%', fontSize: 12, padding: '7px 10px',
+  border: '0.5px solid #DCDCDC', borderRadius: 6,
+  background: '#FAFAFA', color: '#111', outline: 'none',
+  fontFamily: 'inherit', boxSizing: 'border-box',
+}
+
+const btnPrimary = {
+  flex: 1, fontSize: 12, fontWeight: 600, padding: '8px 16px', borderRadius: 6,
+  background: '#185FA5', color: '#fff', border: 'none', cursor: 'pointer',
+}
+
+const btnGhost = {
+  fontSize: 12, fontWeight: 500, padding: '7px 13px', borderRadius: 6,
+  background: 'transparent', color: '#666', border: '0.5px solid #DCDCDC', cursor: 'pointer',
+}
+
 function CustomRequestForm({ onSuccess, onCancel }) {
   const [form, setForm] = useState({
-    resource_type_name: '',
-    cloud_provider: 'AWS',
-    preferred_region: 'ap-south-1',
-    estimated_duration_days: 14,
-    estimated_usage: '',
-    business_justification: '',
-    urgency: 'Medium',
+    resource_type_name: '', cloud_provider: 'AWS', preferred_region: 'ap-south-1',
+    estimated_duration_days: 14, estimated_usage: '', business_justification: '', urgency: 'Medium',
   })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
-
-  const AWS_REGIONS = [
-    'ap-south-1','us-east-1','us-east-2','us-west-1','us-west-2',
-    'eu-west-1','eu-west-2','eu-central-1','ap-southeast-1','ap-southeast-2',
-    'ap-northeast-1','ca-central-1','sa-east-1',
-  ]
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -91,571 +318,378 @@ function CustomRequestForm({ onSuccess, onCancel }) {
       await createCustomRequest({ ...form, estimated_duration_days: parseInt(form.estimated_duration_days) })
       onSuccess()
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to submit request')
-    } finally {
-      setSubmitting(false)
-    }
+      setError(err.response?.data?.detail || 'Failed to submit')
+    } finally { setSubmitting(false) }
   }
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center gap-3 mb-2">
-        <span className="text-2xl">✨</span>
+    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 4 }}>
+        <span style={{ fontSize: 20 }}>✨</span>
         <div>
-          <p className="text-sm font-bold text-gray-900">Custom Resource Request</p>
-          <p className="text-xs text-gray-500">Request any AWS/cloud resource not in the standard templates. An admin will review and provision manually.</p>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#111' }}>Custom Resource Request</div>
+          <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>Request any AWS/cloud resource not in the standard templates. Admin will review and provision manually.</div>
         </div>
       </div>
-      {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>}
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">Resource Type Name *</label>
-            <input
-              type="text"
-              value={form.resource_type_name}
-              onChange={e => setForm({ ...form, resource_type_name: e.target.value })}
-              required
-              placeholder="e.g. ElasticSearch Cluster"
-              className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 text-sm outline-none"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">Cloud Provider</label>
-            <select
-              value={form.cloud_provider}
-              onChange={e => setForm({ ...form, cloud_provider: e.target.value })}
-              className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 text-sm outline-none"
-            >
-              {['AWS', 'GCP', 'Azure', 'Other'].map(p => <option key={p}>{p}</option>)}
-            </select>
-          </div>
-        </div>
-        <div className="grid grid-cols-3 gap-4">
-          <div>
-            <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">Preferred Region</label>
-            <select
-              value={form.preferred_region}
-              onChange={e => setForm({ ...form, preferred_region: e.target.value })}
-              className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 text-sm outline-none"
-            >
-              {AWS_REGIONS.map(r => <option key={r}>{r}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">Duration (Days)</label>
-            <input
-              type="number" min="1" max="365"
-              value={form.estimated_duration_days}
-              onChange={e => setForm({ ...form, estimated_duration_days: e.target.value })}
-              required
-              className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 text-sm outline-none"
-            />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">Urgency</label>
-            <select
-              value={form.urgency}
-              onChange={e => setForm({ ...form, urgency: e.target.value })}
-              className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 text-sm outline-none"
-            >
-              {['Low', 'Medium', 'High'].map(u => <option key={u}>{u}</option>)}
-            </select>
-          </div>
-        </div>
-        <div>
-          <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">Estimated Usage *</label>
-          <input
-            type="text"
-            value={form.estimated_usage}
-            onChange={e => setForm({ ...form, estimated_usage: e.target.value })}
-            required
-            placeholder="e.g. 50GB storage, ~1000 req/day"
-            className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 text-sm outline-none"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-bold text-gray-500 uppercase mb-1.5">Business Justification *</label>
-          <textarea
-            value={form.business_justification}
-            onChange={e => setForm({ ...form, business_justification: e.target.value })}
-            required rows={3}
-            placeholder="Why is this resource needed?"
-            className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 text-sm outline-none resize-none"
-          />
-        </div>
-        <div className="flex gap-3 pt-2">
-          <button type="submit" disabled={submitting}
-            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-50 text-sm">
-            {submitting ? 'Submitting Request...' : 'Submit Custom Request'}
-          </button>
-          <button type="button" onClick={onCancel}
-            className="px-6 py-3 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors">
-            Cancel
-          </button>
-        </div>
-      </form>
-    </div>
+      {error && <div style={{ background: '#FCEBEB', border: '0.5px solid #FBBCBC', color: '#791F1F', padding: '7px 10px', borderRadius: 5, fontSize: 11 }}>{error}</div>}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <Field label="Resource type name *"><input style={inputSt} required value={form.resource_type_name} onChange={e => set('resource_type_name', e.target.value)} placeholder="e.g. OpenSearch Cluster" /></Field>
+        <Field label="Cloud provider"><select style={inputSt} value={form.cloud_provider} onChange={e => set('cloud_provider', e.target.value)}>{['AWS','GCP','Azure','Other'].map(p => <option key={p}>{p}</option>)}</select></Field>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+        <Field label="Region"><select style={inputSt} value={form.preferred_region} onChange={e => set('preferred_region', e.target.value)}>{AWS_REGIONS.map(r => <option key={r}>{r}</option>)}</select></Field>
+        <Field label="Duration (days)"><input style={inputSt} type="number" min="1" max="365" required value={form.estimated_duration_days} onChange={e => set('estimated_duration_days', e.target.value)} /></Field>
+        <Field label="Urgency"><select style={inputSt} value={form.urgency} onChange={e => set('urgency', e.target.value)}>{['Low','Medium','High'].map(u => <option key={u}>{u}</option>)}</select></Field>
+      </div>
+      <Field label="Estimated usage *"><input style={inputSt} required value={form.estimated_usage} onChange={e => set('estimated_usage', e.target.value)} placeholder="e.g. 50GB storage, ~1000 req/day" /></Field>
+      <Field label="Business justification *"><textarea style={{ ...inputSt, resize: 'none', height: 72 }} required value={form.business_justification} onChange={e => set('business_justification', e.target.value)} placeholder="Why is this resource needed?" /></Field>
+      <div style={{ display: 'flex', gap: 7 }}>
+        <button type="submit" disabled={submitting} style={{ ...btnPrimary, padding: '9px 14px' }}>{submitting ? 'Submitting…' : 'Submit custom request'}</button>
+        <button type="button" onClick={onCancel} style={btnGhost}>Cancel</button>
+      </div>
+    </form>
   )
 }
 
 export default function Dashboard() {
-  const { user } = useAuth()
+  const { user, logoutUser } = useAuth()
   const navigate = useNavigate()
   const [tickets, setTickets] = useState([])
   const [templates, setTemplates] = useState([])
+  const [quota, setQuota] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [showForm, setShowForm] = useState(false)
+  const [filter, setFilter] = useState('all')
+  const [panelOpen, setPanelOpen] = useState(false)
   const [isCustom, setIsCustom] = useState(false)
-  const [form, setForm] = useState({ template_id: '', title: '', justification: '', duration_days: 7 })
+  const [selectedTemplate, setSelectedTemplate] = useState('')
+  const [form, setForm] = useState({ title: '', justification: '', duration_days: 7 })
   const [estimate, setEstimate] = useState(null)
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
-  const [quota, setQuota] = useState(null)
+  const [toast, setToast] = useState(null)
   const pollRef = useRef(null)
 
-  useEffect(() => {
-    fetchData()
-    return () => clearInterval(pollRef.current)
-  }, [])
+  const showToast = (msg, type = 'success') => { setToast({ msg, type }); setTimeout(() => setToast(null), 4000) }
+
+  useEffect(() => { fetchData(); return () => clearInterval(pollRef.current) }, [])
 
   useEffect(() => {
-    const hasTransient = tickets.some(t =>
-      ['provisioning', 'approved', 'expiring'].includes(t.status)
-    )
-    if (hasTransient) {
-      pollRef.current = setInterval(fetchData, 10000)
-    } else {
-      clearInterval(pollRef.current)
-    }
+    const hasTransient = tickets.some(t => ['provisioning','approved','expiring'].includes(t.status))
+    clearInterval(pollRef.current)
+    if (hasTransient) pollRef.current = setInterval(fetchData, 10000)
     return () => clearInterval(pollRef.current)
   }, [tickets])
 
   useEffect(() => {
-    if (form.template_id && form.template_id !== 'custom' && form.duration_days) {
-      estimateCost(form.template_id, form.duration_days)
-        .then(res => setEstimate(res.data))
-        .catch(() => setEstimate(null))
-    }
-  }, [form.template_id, form.duration_days])
+    if (selectedTemplate && selectedTemplate !== 'custom') {
+      const t = templates.find(t => t.id === parseInt(selectedTemplate))
+      if (t && !t.is_manual) {
+        estimateCost(parseInt(selectedTemplate), form.duration_days)
+          .then(res => setEstimate(res.data)).catch(() => setEstimate(null))
+      } else { setEstimate(null) }
+    } else { setEstimate(null) }
+  }, [selectedTemplate, form.duration_days])
 
   const fetchData = async () => {
     try {
-      const [ticketsRes, templatesRes, quotaRes] = await Promise.all([
-        getMyTickets(),
-        getTemplates(),
-        getQuota()
-      ])
-      setTickets(ticketsRes.data)
-      setTemplates(templatesRes.data)
-      setQuota(quotaRes.data)
-    } catch (err) {
-      setError('Failed to load data')
-    } finally {
-      setLoading(false)
-    }
+      const [tr, tmr, qr] = await Promise.all([getMyTickets(), getTemplates(), getQuota()])
+      setTickets(tr.data); setTemplates(tmr.data); setQuota(qr.data)
+    } catch { showToast('Failed to load data', 'error') }
+    finally { setLoading(false) }
   }
 
-  // Split templates by tier/type for the selector
-  const tier1Templates = templates.filter(t => t.tier === 1 && t.template_type !== 'custom_request')
-  const tier2Templates = templates.filter(t => t.tier === 2 && t.template_type !== 'custom_request')
-  const tier3Templates = templates.filter(t => t.tier === 3 && t.template_type !== 'custom_request')
-
-  const selectedTemplate = templates.find(t => t.id === parseInt(form.template_id))
-  const selectedIsManual = selectedTemplate?.is_manual
-
-  const handleTemplateSelect = (templateId) => {
-    // Check for the "custom" string explicitly first
-    if (templateId === 'custom') {
-      setIsCustom(true)
-      setForm({ template_id: '', title: '', justification: '', duration_days: 7 })
-    } else {
-      setIsCustom(false)
-      setForm({ ...form, template_id: templateId })
-    }
+  const handleTemplateSelect = (val) => {
+    if (val === 'custom') { setIsCustom(true); setSelectedTemplate('custom') }
+    else { setIsCustom(false); setSelectedTemplate(val) }
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (isCustom) return
+    if (isCustom || !selectedTemplate) return
     setSubmitting(true)
-    setError('')
     try {
-      const res = await createTicket({
-        template_id: parseInt(form.template_id),
-        title: form.title,
-        justification: form.justification,
-        duration_days: parseInt(form.duration_days)
-      })
-      const newTicket = res.data
-      // Only auto-check for Tier 1 auto-provision; manual tickets skip it
-      if (!selectedIsManual) {
-        await autoCheckTicket(newTicket.id)
-      }
-      setSuccess('Environment request submitted!')
-      setShowForm(false)
-      setIsCustom(false)
-      setForm({ template_id: '', title: '', justification: '', duration_days: 7 })
-      setEstimate(null)
+      const tmpl = templates.find(t => t.id === parseInt(selectedTemplate))
+      const res = await createTicket({ template_id: parseInt(selectedTemplate), title: form.title, justification: form.justification, duration_days: parseInt(form.duration_days) })
+      if (!tmpl?.is_manual) await autoCheckTicket(res.data.id)
+      showToast('Environment request submitted!')
+      setPanelOpen(false); setSelectedTemplate(''); setForm({ title: '', justification: '', duration_days: 7 }); setEstimate(null)
       fetchData()
-      setTimeout(() => setSuccess(''), 4000)
-    } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to submit request')
-    } finally {
-      setSubmitting(false)
-    }
+    } catch (err) { showToast(err.response?.data?.detail || 'Failed to submit', 'error') }
+    finally { setSubmitting(false) }
   }
 
   const handleCustomSuccess = () => {
-    setSuccess('Custom request submitted! Admin will review shortly.')
-    setShowForm(false)
-    setIsCustom(false)
-    fetchData()
-    setTimeout(() => setSuccess(''), 5000)
+    showToast('Custom request submitted! Admin will review shortly.')
+    setPanelOpen(false); setIsCustom(false); setSelectedTemplate(''); fetchData()
   }
 
   const handleOpenConsole = async (ticketId) => {
-    try {
-      const res = await getConsoleLink(ticketId)
-      window.open(res.data.url, '_blank')
-    } catch (err) {
-      setError(err.response?.data?.detail || 'IAM session required for console access.')
-      setTimeout(() => setError(''), 5000)
-    }
+    try { const res = await getConsoleLink(ticketId); window.open(res.data.url, '_blank') }
+    catch (err) { showToast(err.response?.data?.detail || 'IAM session required', 'error') }
   }
 
   const handleCancel = async (ticketId, ticketNumber) => {
-    if (!window.confirm(`Cancel ticket ${ticketNumber}? This cannot be undone.`)) return
-    try {
-      await cancelTicket(ticketId)
-      setSuccess(`Ticket ${ticketNumber} cancelled`)
-      fetchData()
-      setTimeout(() => setSuccess(''), 4000)
-    } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to cancel ticket')
-    }
+    if (!window.confirm(`Cancel ticket ${ticketNumber}?`)) return
+    try { await cancelTicket(ticketId); showToast(`${ticketNumber} cancelled`); fetchData() }
+    catch (err) { showToast(err.response?.data?.detail || 'Failed to cancel', 'error') }
   }
 
-  const stats = {
-    total: tickets.length,
-    active: tickets.filter(t => t.status === 'active').length,
-    pending: tickets.filter(t => ['pending_approval', 'pending_manual_setup', 'in_progress'].includes(t.status)).length,
-    provisioning: tickets.filter(t => t.status === 'provisioning').length,
-  }
+  const activeCount    = tickets.filter(t => t.status === 'active').length
+  const pendingCount   = tickets.filter(t => ['pending_approval','pending_manual_setup','in_progress'].includes(t.status)).length
+  const quotaUsed      = quota?.active_environments ?? activeCount
+  const quotaMax       = quota?.max_environments ?? 3
+  const monthlyBurn    = quota?.monthly_cost_usd ?? 0
+  const quotaPct       = Math.min(100, (quotaUsed / quotaMax) * 100)
+  const selectedTmpl   = templates.find(t => t.id === parseInt(selectedTemplate))
+  const selectedIsManual = selectedTmpl?.is_manual
+  const hasPolling     = tickets.some(t => ['provisioning','approved','expiring'].includes(t.status))
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
+  const filterMap = {
+    all:     tickets,
+    active:  tickets.filter(t => ['active','expiring'].includes(t.status)),
+    pending: tickets.filter(t => ['pending_approval','pending_manual_setup','in_progress','provisioning'].includes(t.status)),
+    done:    tickets.filter(t => ['expired','rejected','cancelled'].includes(t.status)),
+  }
+  const visible = filterMap[filter] || tickets
+
+  if (loading) return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F3F4F6', fontFamily: 'system-ui, sans-serif' }}>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ width: 34, height: 34, border: '2.5px solid #E0E0E0', borderTop: '2.5px solid #185FA5', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 10px' }} />
+        <div style={{ fontSize: 12, color: '#888' }}>Loading your environments…</div>
       </div>
-    )
-  }
+    </div>
+  )
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans">
-      <Navbar />
-      <div className="max-w-6xl mx-auto px-6 py-8">
+    <div style={{ display: 'flex', height: '100vh', fontFamily: "'DM Sans', system-ui, sans-serif", background: '#F3F4F6', overflow: 'hidden' }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Mono:wght@400;500&display=swap');
+        * { box-sizing: border-box; }
+        @keyframes cpulse { 0%,100%{opacity:1} 50%{opacity:.2} }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        @keyframes fadeUp { from { transform: translateY(5px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: #185FA5 !important; box-shadow: 0 0 0 2px rgba(24,95,165,0.1); }
+        ::-webkit-scrollbar { width: 4px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: #DDD; border-radius: 4px; }
+      `}</style>
 
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+      {/* Sidebar */}
+      <div style={{ width: 200, background: '#fff', borderRight: '0.5px solid #E8E8E8', display: 'flex', flexDirection: 'column', flexShrink: 0, zIndex: 10 }}>
+        <div style={{ padding: '14px 12px 12px', borderBottom: '0.5px solid #E8E8E8', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ width: 28, height: 28, background: '#185FA5', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z"/></svg>
+          </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Cloud Infrastructure</h1>
-            <p className="text-gray-500 text-sm mt-1">Operator: {user?.full_name}</p>
-          </div>
-          <button
-            onClick={() => { setShowForm(!showForm); setIsCustom(false) }}
-            className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold px-5 py-2.5 rounded-xl transition-all shadow-md active:scale-95"
-          >
-            {showForm ? 'Cancel Request' : '+ New Environment'}
-          </button>
-        </div>
-
-        {/* Alerts */}
-        {success && <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-6 text-sm font-medium">{success}</div>}
-        {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 text-sm font-medium">{error}</div>}
-
-        {/* Auto-refresh notice */}
-        {tickets.some(t => ['provisioning', 'approved', 'expiring'].includes(t.status)) && (
-          <div className="bg-blue-50 border border-blue-100 text-blue-700 px-4 py-3 rounded-lg mb-6 text-xs flex items-center gap-3 font-bold uppercase tracking-wider">
-            <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
-            Syncing with Cloud Provider — Page auto-refreshes...
-          </div>
-        )}
-
-        {/* Stats Grid */}
-        <div className="grid grid-cols-4 gap-6 mb-8">
-          <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Resources</p>
-            <p className="text-3xl font-black mt-2 text-gray-900">
-              {quota ? `${quota.active_environments}/${quota.max_environments}` : stats.total}
-            </p>
-          </div>
-          <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Monthly Burn</p>
-            <p className="text-3xl font-black mt-2 text-green-600">
-              ${quota ? quota.monthly_cost_usd.toFixed(2) : '0.00'}
-            </p>
-          </div>
-          <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Pending</p>
-            <p className="text-3xl font-black mt-2 text-yellow-500">{stats.pending}</p>
-          </div>
-          <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Active</p>
-            <p className="text-3xl font-black mt-2 text-blue-600">{stats.active}</p>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#111' }}>Cloud Portal</div>
+            <div style={{ fontSize: 10, color: '#AAA' }}>ap-south-1</div>
           </div>
         </div>
-
-        {/* Request Form */}
-        {showForm && (
-          <div className="bg-white rounded-2xl border border-gray-200 p-8 mb-8 shadow-lg">
-            <h2 className="text-xl font-bold text-gray-900 mb-6">Provision New Resource</h2>
-
-            {isCustom ? (
-              <CustomRequestForm
-                onSuccess={handleCustomSuccess}
-                onCancel={() => { setIsCustom(false); setShowForm(false) }}
-              />
-            ) : (
-              <form onSubmit={handleSubmit} className="space-y-6">
-                <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Service Template</label>
-                  <select
-                    value={form.template_id}
-                    onChange={e => handleTemplateSelect(e.target.value)}
-                    required
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 text-sm outline-none"
-                  >
-                    <option value="">Select template...</option>
-                    {tier1Templates.length > 0 && (
-                      <optgroup label="⚡ Tier 1 — Instant Auto-Provisioned">
-                        {tier1Templates.map(t => {
-                          const meta = getTemplateMeta(t.template_type)
-                          return (
-                            <option key={t.id} value={t.id}>
-                              {meta.icon} {t.name}{t.base_cost_usd > 0 ? ` (~$${t.base_cost_usd}/mo)` : ' (Free Tier)'}
-                            </option>
-                          )
-                        })}
-                      </optgroup>
-                    )}
-                    {tier2Templates.length > 0 && (
-                      <optgroup label="🔧 Tier 2 — Managed Request (1–2 day SLA)">
-                        {tier2Templates.map(t => {
-                          const meta = getTemplateMeta(t.template_type)
-                          return (
-                            <option key={t.id} value={t.id}>
-                              {meta.icon} {t.name}{t.base_cost_usd > 0 ? ` (~$${t.base_cost_usd}/mo)` : ''}
-                            </option>
-                          )
-                        })}
-                      </optgroup>
-                    )}
-                    {tier3Templates.length > 0 && (
-                      <optgroup label="🏗️ Tier 3 — Enterprise (3–5 day SLA)">
-                        {tier3Templates.map(t => {
-                          const meta = getTemplateMeta(t.template_type)
-                          return (
-                            <option key={t.id} value={t.id}>
-                              {meta.icon} {t.name}{t.base_cost_usd > 0 ? ` (~$${t.base_cost_usd}/mo)` : ''}
-                            </option>
-                          )
-                        })}
-                      </optgroup>
-                    )}
-                    <optgroup label="─────────────────────">
-                      <option value="custom">✨ Others — Custom Resource Request</option>
-                    </optgroup>
-                  </select>
-                </div>
-
-                {/* Manual template SLA notice */}
-                {selectedIsManual && selectedTemplate && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3">
-                    <span className="text-lg">⏳</span>
-                    <div>
-                      <p className="text-sm font-semibold text-amber-800">Manual Setup Required</p>
-                      <p className="text-xs text-amber-700 mt-0.5">
-                        This resource requires admin configuration.
-                        Usually ready in <strong>{selectedTemplate.resources?.sla_days || 2} business day(s)</strong>.
-                        You'll receive an email when it's live.
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {/* ECS cost warning */}
-                {selectedTemplate?.template_type === 'ecs_container' && (
-                  <div className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 flex items-start gap-3">
-                    <span className="text-lg">⚠️</span>
-                    <p className="text-sm text-orange-800">
-                      <strong>Not free tier eligible.</strong> ECS Fargate costs approximately <strong>~$9/month</strong>. Make sure this is approved within your budget.
-                    </p>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-6">
-                  <div>
-                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Deployment Title</label>
-                    <input
-                      type="text"
-                      value={form.title}
-                      onChange={e => setForm({ ...form, title: e.target.value })}
-                      required
-                      placeholder="e.g. Production RDS Migration Test"
-                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 text-sm outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-500 uppercase mb-2">TTL (Days)</label>
-                    <input
-                      type="number" min="1" max="30"
-                      value={form.duration_days}
-                      onChange={e => setForm({ ...form, duration_days: e.target.value })}
-                      required
-                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 text-sm outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase mb-2">Business Justification</label>
-                  <textarea
-                    value={form.justification}
-                    onChange={e => setForm({ ...form, justification: e.target.value })}
-                    required rows={3}
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 text-sm outline-none resize-none"
-                  />
-                </div>
-
-                {estimate && !selectedIsManual && (
-                  <div className="bg-blue-600 rounded-2xl p-6 text-white shadow-inner">
-                    <p className="text-[10px] font-bold uppercase tracking-widest opacity-80">Projected Infrastructure Cost</p>
-                    <div className="flex items-end gap-1 mt-1">
-                      <span className="text-3xl font-black">${estimate.estimated_total_cost}</span>
-                      <span className="text-xs mb-1 opacity-80">for {form.duration_days} days</span>
-                    </div>
-                    <p className="text-[10px] opacity-60 mt-2">
-                      ${estimate.estimated_monthly_cost} / month  •  {estimate.free_tier_eligible ? '✓ Free Tier Eligible' : 'Standard pricing'}
-                    </p>
-                  </div>
-                )}
-
-                <div className="flex gap-4 pt-4">
-                  <button type="submit" disabled={submitting}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg transition-all active:scale-95 disabled:opacity-50">
-                    {submitting ? 'Initializing...' : 'Confirm Deployment'}
-                  </button>
-                </div>
-              </form>
-            )}
+        <div style={{ padding: '10px 8px', flex: 1 }}>
+          <div style={{ fontSize: 10, color: '#CCC', padding: '6px 8px 3px', letterSpacing: '0.07em', fontWeight: 600 }}>WORKSPACE</div>
+          {[
+            { icon: '▦', label: 'Environments', active: true, badge: pendingCount || undefined },
+            { icon: '⏱', label: 'Activity' },
+            { icon: '◎', label: 'Cost & Quota' },
+          ].map(item => (
+            <div key={item.label} style={{
+              display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', borderRadius: 6,
+              fontSize: 12, color: item.active ? '#185FA5' : '#777',
+              background: item.active ? '#E6F1FB' : 'transparent', marginBottom: 1, cursor: 'pointer',
+            }}>
+              <span style={{ fontSize: 13 }}>{item.icon}</span>
+              <span style={{ flex: 1 }}>{item.label}</span>
+              {item.badge && <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 8, background: '#FAEEDA', color: '#633806' }}>{item.badge}</span>}
+            </div>
+          ))}
+          {user?.role === 'admin' && (
+            <>
+              <div style={{ fontSize: 10, color: '#CCC', padding: '10px 8px 3px', letterSpacing: '0.07em', fontWeight: 600 }}>ADMIN</div>
+              <div onClick={() => navigate('/admin')} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', borderRadius: 6, fontSize: 12, color: '#777', cursor: 'pointer', marginBottom: 1 }}>
+                <span style={{ fontSize: 13 }}>⚙</span> Admin panel
+              </div>
+            </>
+          )}
+        </div>
+        <div style={{ padding: '10px 12px', borderTop: '0.5px solid #E8E8E8', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#D6E9FB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 600, color: '#185FA5', flexShrink: 0 }}>
+            {(user?.full_name || user?.email || 'U').slice(0, 2).toUpperCase()}
           </div>
-        )}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#111', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.full_name || user?.email || 'User'}</div>
+            <div style={{ fontSize: 10, color: '#AAA' }}>{user?.role || 'developer'}</div>
+          </div>
+          <button onClick={logoutUser} title="Sign out" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#CCC', fontSize: 14, padding: 2 }}>⏏</button>
+        </div>
+      </div>
 
-        {/* Requests Table */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-8 py-5 border-b border-gray-50 flex items-center justify-between bg-gray-50/30">
-            <h2 className="text-sm font-bold text-gray-900 uppercase tracking-widest">Active Deployments</h2>
-            <button onClick={fetchData} className="text-[10px] font-bold text-blue-600 hover:underline uppercase">Refresh Registry</button>
+      {/* Main */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+        {/* Topbar */}
+        <div style={{ padding: '12px 20px', borderBottom: '0.5px solid #E8E8E8', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: '#111' }}>Environments</div>
+            <div style={{ fontSize: 11, color: '#AAA', marginTop: 1 }}>
+              {user?.full_name ? `${user.full_name}'s workspace` : 'Your workspace'}
+              {hasPolling && <span style={{ marginLeft: 8, fontSize: 10, color: '#534AB7' }}>⟳ syncing…</span>}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={fetchData} style={btnGhost}>Refresh</button>
+            <button onClick={() => { setPanelOpen(true); setSelectedTemplate(''); setIsCustom(false) }}
+              style={{ ...btnPrimary, flex: 'unset', display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> New environment
+            </button>
+          </div>
+        </div>
+
+        {/* Scrollable body */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+
+          {/* Toast */}
+          {toast && (
+            <div style={{
+              position: 'fixed', top: 16, right: panelOpen ? 428 : 16, zIndex: 300,
+              padding: '9px 14px', borderRadius: 7, fontSize: 12, fontWeight: 500,
+              background: toast.type === 'error' ? '#FCEBEB' : '#D4EDB8',
+              color: toast.type === 'error' ? '#791F1F' : '#27500A',
+              border: `0.5px solid ${toast.type === 'error' ? '#FBBCBC' : '#A8D98A'}`,
+              animation: 'fadeUp 0.2s ease', boxShadow: '0 4px 14px rgba(0,0,0,0.1)',
+            }}>
+              {toast.msg}
+            </div>
+          )}
+
+          {/* Stats */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
+            {[
+              { label: 'Quota', value: `${quotaUsed}/${quotaMax}`, sub: 'environments', bar: quotaPct, barColor: quotaPct > 80 ? '#E24B4A' : '#378ADD' },
+              { label: 'Monthly burn', value: `$${monthlyBurn.toFixed(2)}`, sub: 'this month', valueColor: monthlyBurn > 0 ? '#0F6E56' : '#999' },
+              { label: 'Pending', value: String(pendingCount), sub: pendingCount > 0 ? 'awaiting action' : 'none pending', valueColor: pendingCount > 0 ? '#BA7517' : '#999' },
+              { label: 'Active', value: String(activeCount), sub: 'running now', valueColor: activeCount > 0 ? '#27500A' : '#999' },
+            ].map(s => (
+              <div key={s.label} style={{ background: '#fff', border: '0.5px solid #E8E8E8', borderRadius: 8, padding: '11px 14px', animation: 'fadeUp 0.25s ease' }}>
+                <div style={{ fontSize: 10, color: '#BBB', letterSpacing: '0.05em', fontWeight: 600, textTransform: 'uppercase' }}>{s.label}</div>
+                <div style={{ fontSize: 20, fontWeight: 600, color: s.valueColor || '#111', marginTop: 3, lineHeight: 1 }}>{s.value}</div>
+                <div style={{ fontSize: 10, color: '#BBB', marginTop: 3 }}>{s.sub}</div>
+                {s.bar != null && <div style={{ height: 3, background: '#EBEBEB', borderRadius: 2, marginTop: 7, overflow: 'hidden' }}><div style={{ height: '100%', width: `${s.bar}%`, background: s.barColor, borderRadius: 2 }} /></div>}
+              </div>
+            ))}
           </div>
 
-          {tickets.length === 0 ? (
-            <div className="text-center py-16 text-gray-400 text-sm">No environments yet. Create your first one above.</div>
+          {/* Filters */}
+          <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
+            {[
+              { id: 'all', label: `All (${tickets.length})` },
+              { id: 'active', label: `Active (${activeCount})` },
+              { id: 'pending', label: `Pending (${pendingCount})` },
+              { id: 'done', label: 'Closed' },
+            ].map(f => (
+              <button key={f.id} onClick={() => setFilter(f.id)} style={{
+                fontSize: 11, padding: '4px 11px', borderRadius: 5, cursor: 'pointer',
+                fontWeight: filter === f.id ? 600 : 400,
+                background: filter === f.id ? '#fff' : 'transparent',
+                color: filter === f.id ? '#111' : '#999',
+                border: filter === f.id ? '0.5px solid #DCDCDC' : '0.5px solid transparent',
+              }}>{f.label}</button>
+            ))}
+          </div>
+
+          {/* Cards */}
+          {visible.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '48px 0', background: '#fff', borderRadius: 10, border: '0.5px solid #E8E8E8' }}>
+              <div style={{ fontSize: 28, marginBottom: 8 }}>☁️</div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: '#888' }}>
+                {filter === 'all' ? 'No environments yet' : `No ${filter} environments`}
+              </div>
+              {filter === 'all' && <div style={{ fontSize: 11, color: '#BBB', marginTop: 4 }}>Click "New environment" to get started</div>}
+            </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-gray-50/50">
-                    {['Ticket ID', 'Resource Name', 'Type', 'Status', 'Action', 'Expires'].map(h => (
-                      <th key={h} className="text-left px-8 py-4 text-[10px] font-bold text-gray-400 uppercase tracking-widest">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {tickets.map(ticket => {
-                    const templateType = ticket.template?.template_type || ticket.template_type
-                    const meta = getTemplateMeta(templateType)
-                    return (
-                      <tr key={ticket.id} className="hover:bg-blue-50/20 transition-colors group">
-                        <td className="px-8 py-5 text-xs font-mono font-bold text-blue-600 cursor-pointer" onClick={() => navigate(`/tickets/${ticket.id}`)}>
-                          {ticket.ticket_number}
-                        </td>
-                        <td className="px-8 py-5">
-                          <p className="text-sm font-bold text-gray-900">{ticket.title}</p>
-                        </td>
-                        <td className="px-8 py-5">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-base">{meta.icon}</span>
-                            <div>
-                              <p className="text-[11px] font-semibold text-gray-700">{meta.label}</p>
-                              {meta.tier && (
-                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${meta.tierColor}`}>
-                                  {TIER_LABELS[meta.tier]}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-8 py-5">
-                          <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-md tracking-tighter inline-flex items-center gap-1.5 ${STATUS_COLORS[ticket.status] || 'bg-gray-100 text-gray-600'}`}>
-                            {ticket.status === 'provisioning' && <span className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-ping"></span>}
-                            {ticket.status === 'expiring' && <span className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-ping"></span>}
-                            {ticket.status === 'pending_manual_setup' && <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse"></span>}
-                            {ticket.status === 'in_progress' && <span className="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-pulse"></span>}
-                            {STATUS_LABELS[ticket.status] || ticket.status}
-                          </span>
-                        </td>
-                        <td className="px-8 py-5">
-                          {ticket.status === 'active' ? (
-                            <button
-                              onClick={() => handleOpenConsole(ticket.id)}
-                              className="inline-flex items-center gap-2 bg-[#FF9900] hover:bg-[#ec8d00] text-white text-[10px] font-black px-4 py-2 rounded-lg shadow-sm transition-all active:scale-95"
-                            >
-                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 19h20L12 2zm0 3l7.43 13H4.57L12 5z"/></svg>
-                              LAUNCH CONSOLE
-                            </button>
-                          ) : ticket.status === 'pending_approval' ? (
-                            <button
-                              onClick={() => handleCancel(ticket.id, ticket.ticket_number)}
-                              className="inline-flex items-center gap-2 bg-red-50 hover:bg-red-100 text-red-600 text-[10px] font-black px-4 py-2 rounded-lg transition-all active:scale-95"
-                            >
-                              CANCEL REQUEST
-                            </button>
-                          ) : ticket.status === 'pending_manual_setup' || ticket.status === 'in_progress' ? (
-                            <div className="flex items-center gap-2 text-amber-600">
-                              <span className="text-[10px] font-bold uppercase tracking-widest">Admin Setup Pending</span>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2 text-gray-300">
-                              <div className="w-1.5 h-1.5 bg-gray-200 rounded-full"></div>
-                              <span className="text-[10px] font-bold italic uppercase tracking-widest">Locked</span>
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-8 py-5 text-[10px] font-bold">
-                          {(() => {
-                            if (ticket.status !== 'active') {
-                              return <span className="text-gray-400">{new Date(ticket.created_at).toLocaleDateString()}</span>
-                            }
-                            const expiresAt = new Date(ticket.created_at)
-                            expiresAt.setDate(expiresAt.getDate() + ticket.duration_days)
-                            const daysLeft = Math.ceil((expiresAt - new Date()) / (1000 * 60 * 60 * 24))
-                            if (daysLeft <= 0) return <span className="text-red-600">Expired</span>
-                            if (daysLeft === 1) return <span className="text-red-500">Expires today</span>
-                            if (daysLeft <= 3) return <span className="text-orange-500">Expires in {daysLeft} days</span>
-                            return <span className="text-gray-400">Expires in {daysLeft} days</span>
-                          })()}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {visible.map(ticket => (
+                <div key={ticket.id} style={{ animation: 'fadeUp 0.2s ease' }}>
+                  <EnvironmentCard ticket={ticket} onConsole={handleOpenConsole} onCancel={handleCancel} onClick={id => navigate(`/tickets/${id}`)} />
+                </div>
+              ))}
             </div>
           )}
         </div>
       </div>
+
+      {/* Slide-in panel */}
+      {panelOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 100, display: 'flex', alignItems: 'stretch', justifyContent: 'flex-end' }}>
+          <div onClick={() => setPanelOpen(false)} style={{ flex: 1, background: 'rgba(0,0,0,0.22)' }} />
+          <div style={{ width: 420, background: '#fff', boxShadow: '-4px 0 28px rgba(0,0,0,0.12)', display: 'flex', flexDirection: 'column', animation: 'slideIn 0.2s ease', overflowY: 'auto' }}>
+            <div style={{ padding: '14px 16px', borderBottom: '0.5px solid #E8E8E8', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#111' }}>New environment</div>
+                <div style={{ fontSize: 11, color: '#AAA', marginTop: 1 }}>Choose a service and fill in details</div>
+              </div>
+              <button onClick={() => setPanelOpen(false)} style={{ background: 'none', border: 'none', fontSize: 20, color: '#BBB', cursor: 'pointer', lineHeight: 1, padding: 2 }}>×</button>
+            </div>
+
+            <div style={{ flex: 1, padding: '14px 16px', overflowY: 'auto' }}>
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: '#BBB', letterSpacing: '0.06em', marginBottom: 8, textTransform: 'uppercase' }}>1 · Choose a service</div>
+                <div style={{ border: '0.5px solid #E8E8E8', borderRadius: 8, overflow: 'hidden' }}>
+                  <TemplatePicker templates={templates} selected={selectedTemplate} onSelect={handleTemplateSelect} />
+                </div>
+              </div>
+
+              {selectedTemplate && !isCustom && (
+                <div style={{ animation: 'fadeUp 0.18s ease' }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: '#BBB', letterSpacing: '0.06em', marginBottom: 10, textTransform: 'uppercase' }}>2 · Request details</div>
+                  {selectedIsManual && (
+                    <div style={{ background: '#FAEEDA', border: '0.5px solid #F5D08A', borderRadius: 6, padding: '8px 12px', marginBottom: 12, display: 'flex', gap: 8 }}>
+                      <span style={{ fontSize: 15 }}>⏳</span>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: '#633806' }}>Manual setup required</div>
+                        <div style={{ fontSize: 10, color: '#854F0B', marginTop: 2 }}>Admin will configure this. SLA: {selectedTmpl?.resources?.sla_days || 2} business day(s). Email notification when live.</div>
+                      </div>
+                    </div>
+                  )}
+                  {selectedTmpl?.template_type === 'ecs_container' && (
+                    <div style={{ background: '#FAEEDA', border: '0.5px solid #F5D08A', borderRadius: 6, padding: '8px 12px', marginBottom: 12, fontSize: 11, color: '#633806' }}>
+                      ⚠️ <strong>Not free tier eligible.</strong> ECS Fargate costs ~$9/month.
+                    </div>
+                  )}
+                  <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
+                    <Field label="Environment title *">
+                      <input style={inputSt} required value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="e.g. Production RDS Migration Test" />
+                    </Field>
+                    <Field label="Duration (days) *">
+                      <input style={inputSt} type="number" min="1" max="30" required value={form.duration_days} onChange={e => setForm(f => ({ ...f, duration_days: e.target.value }))} />
+                    </Field>
+                    <Field label="Business justification *">
+                      <textarea style={{ ...inputSt, resize: 'none', height: 72 }} required value={form.justification} onChange={e => setForm(f => ({ ...f, justification: e.target.value }))} placeholder="Why do you need this environment?" />
+                    </Field>
+                    {estimate && !selectedIsManual && (
+                      <div style={{ background: '#185FA5', borderRadius: 8, padding: '11px 14px', color: '#fff' }}>
+                        <div style={{ fontSize: 10, fontWeight: 600, opacity: 0.65, letterSpacing: '0.05em', textTransform: 'uppercase' }}>Estimated cost</div>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, marginTop: 3 }}>
+                          <span style={{ fontSize: 22, fontWeight: 700 }}>${estimate.estimated_total_cost}</span>
+                          <span style={{ fontSize: 11, opacity: 0.65 }}>for {form.duration_days} days</span>
+                        </div>
+                        <div style={{ fontSize: 10, opacity: 0.55, marginTop: 3 }}>${estimate.estimated_monthly_cost}/mo · {estimate.free_tier_eligible ? '✓ Free tier eligible' : 'Standard pricing'}</div>
+                      </div>
+                    )}
+                    <button type="submit" disabled={submitting} style={{ ...btnPrimary, padding: '10px 16px' }}>
+                      {submitting ? 'Initialising…' : selectedIsManual ? 'Submit for admin setup' : 'Provision environment'}
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              {isCustom && (
+                <div style={{ animation: 'fadeUp 0.18s ease' }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: '#BBB', letterSpacing: '0.06em', marginBottom: 10, textTransform: 'uppercase' }}>2 · Custom request details</div>
+                  <CustomRequestForm onSuccess={handleCustomSuccess} onCancel={() => { setIsCustom(false); setSelectedTemplate('') }} />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
