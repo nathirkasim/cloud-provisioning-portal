@@ -2,9 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
+from app.models.quota import ResourceQuota
 from app.schemas.user import UserResponse, UserUpdate, RoleUpdate
 from app.utils.security import get_current_user
 from app.services.audit_service import log_action
+from pydantic import BaseModel
+from typing import Optional
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -77,6 +80,54 @@ def update_role(user_id: int, role_update: RoleUpdate, request: Request, db: Ses
         ip_address=request.client.host
     )
     return user
+
+class QuotaUpdate(BaseModel):
+    environments_limit: Optional[int] = None
+    monthly_budget_usd: Optional[float] = None
+
+@router.get("/{user_id}/quota")
+def get_user_quota(user_id: int, db: Session = Depends(get_db), current_user=Depends(require_admin)):
+    quota = db.query(ResourceQuota).filter(ResourceQuota.user_id == user_id).first()
+    if not quota:
+        raise HTTPException(status_code=404, detail="Quota not found for this user")
+    return {
+        "user_id": user_id,
+        "environments_limit": quota.environments_limit,
+        "monthly_budget_usd": float(quota.monthly_budget_usd),
+        "cpu_limit": quota.cpu_limit,
+        "memory_limit_gb": quota.memory_limit_gb,
+        "storage_limit_gb": quota.storage_limit_gb,
+    }
+
+@router.put("/{user_id}/quota")
+def update_user_quota(user_id: int, updates: QuotaUpdate, request: Request, db: Session = Depends(get_db), current_user=Depends(require_admin)):
+    quota = db.query(ResourceQuota).filter(ResourceQuota.user_id == user_id).first()
+    if not quota:
+        raise HTTPException(status_code=404, detail="Quota not found for this user")
+    changes = {}
+    if updates.environments_limit is not None:
+        if updates.environments_limit < 1:
+            raise HTTPException(status_code=400, detail="environments_limit must be at least 1")
+        changes["environments_limit"] = {"from": quota.environments_limit, "to": updates.environments_limit}
+        quota.environments_limit = updates.environments_limit
+    if updates.monthly_budget_usd is not None:
+        if updates.monthly_budget_usd < 0:
+            raise HTTPException(status_code=400, detail="monthly_budget_usd cannot be negative")
+        changes["monthly_budget_usd"] = {"from": float(quota.monthly_budget_usd), "to": updates.monthly_budget_usd}
+        quota.monthly_budget_usd = updates.monthly_budget_usd
+    db.commit()
+    db.refresh(quota)
+    log_action(
+        db=db, action="user.quota_updated", resource_type="user", resource_id=str(user_id),
+        user_id=current_user["id"],
+        details={"updated_by": current_user["email"], "changes": changes},
+        ip_address=request.client.host
+    )
+    return {
+        "user_id": user_id,
+        "environments_limit": quota.environments_limit,
+        "monthly_budget_usd": float(quota.monthly_budget_usd),
+    }
 
 @router.delete("/{user_id}")
 def deactivate_user(user_id: int, request: Request, db: Session = Depends(get_db), current_user=Depends(require_admin)):

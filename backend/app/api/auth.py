@@ -177,3 +177,38 @@ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db))
     db.commit()
     redis_client.delete(f"reset:{payload.token}")
     return {"message": "Password reset successfully"}
+
+class UpdateMeRequest(BaseModel):
+    full_name: str | None = None
+    department: str | None = None
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+@router.put("/me")
+def update_me(payload: UpdateMeRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == current_user["id"]).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if payload.full_name is not None:
+        user.full_name = payload.full_name.strip()
+    if payload.department is not None:
+        user.department = payload.department.strip() or None
+    db.commit()
+    db.refresh(user)
+    return {"id": user.id, "email": user.email, "full_name": user.full_name,
+            "role": user.role, "department": user.department, "is_active": user.is_active}
+
+@router.post("/change-password")
+def change_password(payload: ChangePasswordRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == current_user["id"]).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not verify_password(payload.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    if len(payload.new_password) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
+    user.password_hash = get_password_hash(payload.new_password)
+    db.commit()
+    return {"message": "Password changed successfully"}

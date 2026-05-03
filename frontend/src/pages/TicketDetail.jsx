@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { getTicket, extendEnvironment, getUploadUrl, getConsoleLink } from '../services/api'
+import { getTicket, extendEnvironment, getUploadUrl, getConsoleLink, cancelTicket } from '../services/api'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -242,21 +242,38 @@ function LifetimeBar({ ticket, extendDays, setExtendDays, onExtend, extending })
           + Extend environment
         </button>
       ) : (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 11, color: '#666' }}>Extend by</span>
-          <input
-            type="number" min="1" max="30" value={extendDays}
-            onChange={e => setExtendDays(parseInt(e.target.value))}
-            style={{ width: 52, fontSize: 12, padding: '4px 8px', border: '0.5px solid #DCDCDC', borderRadius: 5, outline: 'none', background: '#FAFAFA', fontFamily: 'inherit' }}
-          />
-          <span style={{ fontSize: 11, color: '#666' }}>days</span>
-          <button onClick={() => { onExtend(); setShowExtend(false) }} disabled={extending} style={{
-            fontSize: 11, fontWeight: 600, padding: '5px 12px', borderRadius: 5,
-            background: '#185FA5', color: '#fff', border: 'none', cursor: 'pointer', opacity: extending ? 0.6 : 1,
-          }}>
-            {extending ? 'Extending…' : 'Confirm'}
-          </button>
-          <button onClick={() => setShowExtend(false)} style={{ fontSize: 11, color: '#AAA', background: 'none', border: 'none', cursor: 'pointer' }}>Cancel</button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11, color: '#666' }}>Extend by</span>
+            <input
+              type="number" min="1" max="30" value={extendDays}
+              onChange={e => {
+                const val = parseInt(e.target.value, 10)
+                if (!isNaN(val)) setExtendDays(Math.min(30, Math.max(1, val)))
+              }}
+              style={{
+                width: 52, fontSize: 12, padding: '4px 8px', fontFamily: 'inherit',
+                border: `0.5px solid ${extendDays < 1 || extendDays > 30 ? '#E24B4A' : '#DCDCDC'}`,
+                borderRadius: 5, outline: 'none', background: '#FAFAFA',
+              }}
+            />
+            <span style={{ fontSize: 11, color: '#666' }}>days (max 30)</span>
+            <button
+              onClick={() => { onExtend(); setShowExtend(false) }}
+              disabled={extending || extendDays < 1 || extendDays > 30}
+              style={{
+                fontSize: 11, fontWeight: 600, padding: '5px 12px', borderRadius: 5,
+                background: '#185FA5', color: '#fff', border: 'none', cursor: 'pointer',
+                opacity: (extending || extendDays < 1 || extendDays > 30) ? 0.4 : 1,
+              }}
+            >
+              {extending ? 'Extending…' : 'Confirm'}
+            </button>
+            <button onClick={() => setShowExtend(false)} style={{ fontSize: 11, color: '#AAA', background: 'none', border: 'none', cursor: 'pointer' }}>Cancel</button>
+          </div>
+          {extendDays > 30 && (
+            <span style={{ fontSize: 11, color: '#A32D2D' }}>Maximum extension is 30 days</span>
+          )}
         </div>
       )}
     </div>
@@ -362,9 +379,22 @@ export default function TicketDetail() {
   const [toast, setToast] = useState(null)
   const [extendDays, setExtendDays] = useState(7)
   const [extending, setExtending] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+  const [confirmCancel, setConfirmCancel] = useState(false)
   const pollRef = useRef(null)
 
   const showToast = (msg, type = 'success') => { setToast({ msg, type }); setTimeout(() => setToast(null), 4000) }
+
+  const handleCancel = async () => {
+    setCancelling(true)
+    try {
+      await cancelTicket(id)
+      setConfirmCancel(false)
+      showToast('Request cancelled')
+      getTicket(id).then(r => setTicket(r.data)).catch(() => {})
+    } catch (err) { showToast(err.response?.data?.detail || 'Failed to cancel', 'error') }
+    finally { setCancelling(false) }
+  }
 
   useEffect(() => {
     getTicket(id).then(res => setTicket(res.data)).catch(() => showToast('Ticket not found', 'error')).finally(() => setLoading(false))
@@ -471,6 +501,24 @@ export default function TicketDetail() {
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
               Open in AWS Console
             </button>
+          )}
+          {isPending && !confirmCancel && (
+            <button onClick={() => setConfirmCancel(true)} style={{
+              fontSize: 11, fontWeight: 500, padding: '6px 12px', borderRadius: 5,
+              background: 'transparent', color: '#A32D2D', border: '0.5px solid #FBBCBC', cursor: 'pointer',
+            }}>
+              Cancel request
+            </button>
+          )}
+          {isPending && confirmCancel && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#FCEBEB', border: '0.5px solid #FBBCBC', borderRadius: 5, padding: '5px 10px' }}>
+              <span style={{ fontSize: 11, color: '#A32D2D', fontWeight: 500 }}>Cancel this request?</span>
+              <button onClick={handleCancel} disabled={cancelling} style={{
+                fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 4,
+                background: '#A32D2D', color: '#fff', border: 'none', cursor: 'pointer', opacity: cancelling ? 0.6 : 1,
+              }}>{cancelling ? '…' : 'Yes, cancel'}</button>
+              <button onClick={() => setConfirmCancel(false)} style={{ fontSize: 11, color: '#A32D2D', background: 'none', border: 'none', cursor: 'pointer' }}>Keep</button>
+            </div>
           )}
           <StatusPill status={ticket.status} />
         </div>

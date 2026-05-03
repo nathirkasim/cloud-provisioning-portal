@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import {
+import api, {
   getMyTickets, getTemplates, createTicket, estimateCost,
   getQuota, getConsoleLink, autoCheckTicket, cancelTicket, createCustomRequest
 } from '../services/api'
@@ -359,6 +359,7 @@ export default function Dashboard() {
   const [quota, setQuota] = useState(null)
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('all')
+  const [sidebarView, setSidebarView] = useState('environments')
   const [panelOpen, setPanelOpen] = useState(false)
   const [isCustom, setIsCustom] = useState(false)
   const [selectedTemplate, setSelectedTemplate] = useState('')
@@ -369,6 +370,11 @@ export default function Dashboard() {
   const pollRef = useRef(null)
 
   const showToast = (msg, type = 'success') => { setToast({ msg, type }); setTimeout(() => setToast(null), 4000) }
+
+  const handleLogout = async () => {
+    try { await api.post('/auth/logout') } catch {}
+    finally { logoutUser(); navigate('/login') }
+  }
 
   useEffect(() => { fetchData(); return () => clearInterval(pollRef.current) }, [])
 
@@ -487,21 +493,21 @@ export default function Dashboard() {
         <div style={{ padding: '10px 8px', flex: 1 }}>
           <div style={{ fontSize: 10, color: '#CCC', padding: '6px 8px 3px', letterSpacing: '0.07em', fontWeight: 600 }}>WORKSPACE</div>
           {[
-            { icon: '▦', label: 'Environments', active: true, badge: pendingCount || undefined },
-            { icon: '⏱', label: 'Activity' },
-            { icon: '◎', label: 'Cost & Quota' },
+            { icon: '▦', label: 'Environments', view: 'environments', badge: pendingCount || undefined },
+            { icon: '⏱', label: 'Activity', view: 'activity' },
+            { icon: '◎', label: 'Cost & Quota', view: 'quota' },
           ].map(item => (
-            <div key={item.label} style={{
+            <div key={item.label} onClick={() => setSidebarView(item.view)} style={{
               display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', borderRadius: 6,
-              fontSize: 12, color: item.active ? '#185FA5' : '#777',
-              background: item.active ? '#E6F1FB' : 'transparent', marginBottom: 1, cursor: 'pointer',
+              fontSize: 12, color: sidebarView === item.view ? '#185FA5' : '#777',
+              background: sidebarView === item.view ? '#E6F1FB' : 'transparent', marginBottom: 1, cursor: 'pointer',
             }}>
               <span style={{ fontSize: 13 }}>{item.icon}</span>
               <span style={{ flex: 1 }}>{item.label}</span>
               {item.badge && <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 8, background: '#FAEEDA', color: '#633806' }}>{item.badge}</span>}
             </div>
           ))}
-          {user?.role === 'admin' && (
+          {['admin','approver'].includes(user?.role) && (
             <>
               <div style={{ fontSize: 10, color: '#CCC', padding: '10px 8px 3px', letterSpacing: '0.07em', fontWeight: 600 }}>ADMIN</div>
               <div onClick={() => navigate('/admin')} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 8px', borderRadius: 6, fontSize: 12, color: '#777', cursor: 'pointer', marginBottom: 1 }}>
@@ -511,14 +517,22 @@ export default function Dashboard() {
           )}
         </div>
         <div style={{ padding: '10px 12px', borderTop: '0.5px solid #E8E8E8', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#D6E9FB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 600, color: '#185FA5', flexShrink: 0 }}>
-            {(user?.full_name || user?.email || 'U').slice(0, 2).toUpperCase()}
+          <div
+            onClick={() => navigate('/profile')}
+            title="Profile & Settings"
+            style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, cursor: 'pointer', borderRadius: 6, padding: '2px 4px', margin: '-2px -4px' }}
+            onMouseEnter={e => e.currentTarget.style.background = '#F4F4F4'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          >
+            <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#D6E9FB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 600, color: '#185FA5', flexShrink: 0 }}>
+              {(user?.full_name || user?.email || 'U').slice(0, 2).toUpperCase()}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#111', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.full_name || user?.email || 'User'}</div>
+              <div style={{ fontSize: 10, color: '#AAA' }}>{user?.role || 'developer'}</div>
+            </div>
           </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#111', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user?.full_name || user?.email || 'User'}</div>
-            <div style={{ fontSize: 10, color: '#AAA' }}>{user?.role || 'developer'}</div>
-          </div>
-          <button onClick={logoutUser} title="Sign out" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#CCC', fontSize: 14, padding: 2 }}>⏏</button>
+          <button onClick={handleLogout} title="Sign out" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#CCC', fontSize: 14, padding: 2 }}>⏏</button>
         </div>
       </div>
 
@@ -527,7 +541,9 @@ export default function Dashboard() {
         {/* Topbar */}
         <div style={{ padding: '12px 20px', borderBottom: '0.5px solid #E8E8E8', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 600, color: '#111' }}>Environments</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: '#111' }}>
+              {sidebarView === 'environments' ? 'Environments' : sidebarView === 'activity' ? 'Activity' : 'Cost & Quota'}
+            </div>
             <div style={{ fontSize: 11, color: '#AAA', marginTop: 1 }}>
               {user?.full_name ? `${user.full_name}'s workspace` : 'Your workspace'}
               {hasPolling && <span style={{ marginLeft: 8, fontSize: 10, color: '#534AB7' }}>⟳ syncing…</span>}
@@ -535,10 +551,12 @@ export default function Dashboard() {
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={fetchData} style={btnGhost}>Refresh</button>
-            <button onClick={() => { setPanelOpen(true); setSelectedTemplate(''); setIsCustom(false) }}
-              style={{ ...btnPrimary, flex: 'unset', display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> New environment
-            </button>
+            {sidebarView === 'environments' && (
+              <button onClick={() => { setPanelOpen(true); setSelectedTemplate(''); setIsCustom(false) }}
+                style={{ ...btnPrimary, flex: 'unset', display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> New environment
+              </button>
+            )}
           </div>
         </div>
 
@@ -559,6 +577,7 @@ export default function Dashboard() {
             </div>
           )}
 
+          {sidebarView === 'environments' && (<>
           {/* Stats */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
             {[
@@ -610,6 +629,108 @@ export default function Dashboard() {
                   <EnvironmentCard ticket={ticket} onConsole={handleOpenConsole} onCancel={handleCancel} onClick={id => navigate(`/tickets/${id}`)} />
                 </div>
               ))}
+            </div>
+          )}
+          </>)}
+          {sidebarView === 'activity' && (
+            <div style={{ animation: 'fadeUp 0.2s ease' }}>
+              {tickets.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '48px 0', background: '#fff', borderRadius: 10, border: '0.5px solid #E8E8E8' }}>
+                  <div style={{ fontSize: 28, marginBottom: 8 }}>⏱</div>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: '#888' }}>No activity yet</div>
+                  <div style={{ fontSize: 11, color: '#BBB', marginTop: 4 }}>Your environment history will appear here</div>
+                </div>
+              ) : (
+                <div style={{ background: '#fff', border: '0.5px solid #E8E8E8', borderRadius: 10, overflow: 'hidden' }}>
+                  <div style={{ padding: '12px 16px', borderBottom: '0.5px solid #EBEBEB' }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#111' }}>Environment history</div>
+                    <div style={{ fontSize: 11, color: '#AAA', marginTop: 1 }}>{tickets.length} total request{tickets.length !== 1 ? 's' : ''}</div>
+                  </div>
+                  {[...tickets].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).map((ticket, i, arr) => {
+                    const cfg = STATUS_CONFIG[ticket.status] || { label: ticket.status, color: '#666', bg: '#eee', dot: '#999' }
+                    const meta = TEMPLATE_META[ticket.template?.template_type || ticket.template_type] || { icon: '☁️' }
+                    const date = new Date(ticket.created_at)
+                    return (
+                      <div key={ticket.id} onClick={() => navigate(`/tickets/${ticket.id}`)} style={{
+                        display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', cursor: 'pointer',
+                        borderBottom: i < arr.length - 1 ? '0.5px solid #F0F0F0' : 'none',
+                        transition: 'background 0.1s',
+                      }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#FAFAFA'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                      >
+                        <div style={{ width: 32, height: 32, borderRadius: 8, background: '#F4F4F4', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, flexShrink: 0 }}>{meta.icon}</div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 500, color: '#111', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ticket.title}</div>
+                          <div style={{ fontSize: 10, color: '#AAA', marginTop: 2 }}>{date.toLocaleDateString()} · {ticket.ticket_number}</div>
+                        </div>
+                        <span style={{ fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 10, background: cfg.bg, color: cfg.color, whiteSpace: 'nowrap' }}>{cfg.label}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+          {sidebarView === 'quota' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, animation: 'fadeUp 0.2s ease' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div style={{ background: '#fff', border: '0.5px solid #E8E8E8', borderRadius: 8, padding: '16px' }}>
+                  <div style={{ fontSize: 10, color: '#BBB', letterSpacing: '0.05em', fontWeight: 600, textTransform: 'uppercase', marginBottom: 8 }}>Environment quota</div>
+                  <div style={{ fontSize: 28, fontWeight: 600, color: quotaPct > 80 ? '#A32D2D' : '#111', lineHeight: 1 }}>{quotaUsed}<span style={{ fontSize: 14, color: '#AAA', fontWeight: 400 }}>/{quotaMax}</span></div>
+                  <div style={{ fontSize: 11, color: '#AAA', marginTop: 4 }}>environments used</div>
+                  <div style={{ height: 5, background: '#EBEBEB', borderRadius: 3, marginTop: 12, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${quotaPct}%`, background: quotaPct > 80 ? '#E24B4A' : '#378ADD', borderRadius: 3, transition: 'width 0.4s ease' }} />
+                  </div>
+                  <div style={{ fontSize: 10, color: quotaPct > 80 ? '#A32D2D' : '#AAA', marginTop: 5 }}>{quotaMax - quotaUsed} slot{quotaMax - quotaUsed !== 1 ? 's' : ''} remaining</div>
+                </div>
+                <div style={{ background: '#fff', border: '0.5px solid #E8E8E8', borderRadius: 8, padding: '16px' }}>
+                  <div style={{ fontSize: 10, color: '#BBB', letterSpacing: '0.05em', fontWeight: 600, textTransform: 'uppercase', marginBottom: 8 }}>Monthly spend</div>
+                  <div style={{ fontSize: 28, fontWeight: 600, color: monthlyBurn > 0 ? '#0F6E56' : '#999', lineHeight: 1 }}>${monthlyBurn.toFixed(2)}</div>
+                  <div style={{ fontSize: 11, color: '#AAA', marginTop: 4 }}>this month so far</div>
+                  {quota?.monthly_budget_usd && (
+                    <>
+                      <div style={{ height: 5, background: '#EBEBEB', borderRadius: 3, marginTop: 12, overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${Math.min(100,(monthlyBurn/quota.monthly_budget_usd)*100)}%`, background: monthlyBurn/quota.monthly_budget_usd > 0.8 ? '#E24B4A' : '#1D9E75', borderRadius: 3 }} />
+                      </div>
+                      <div style={{ fontSize: 10, color: '#AAA', marginTop: 5 }}>Budget: ${quota.monthly_budget_usd.toFixed(2)}/mo</div>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div style={{ background: '#fff', border: '0.5px solid #E8E8E8', borderRadius: 10, overflow: 'hidden' }}>
+                <div style={{ padding: '12px 16px', borderBottom: '0.5px solid #EBEBEB' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#111' }}>Cost by environment</div>
+                  <div style={{ fontSize: 11, color: '#AAA', marginTop: 1 }}>Active and recent environments</div>
+                </div>
+                {tickets.filter(t => ['active','expiring'].includes(t.status)).length === 0 ? (
+                  <div style={{ padding: '28px 16px', textAlign: 'center', fontSize: 12, color: '#BBB' }}>No active environments generating cost</div>
+                ) : (
+                  tickets.filter(t => ['active','expiring'].includes(t.status)).map((ticket, i, arr) => {
+                    const meta = TEMPLATE_META[ticket.template?.template_type || ticket.template_type] || { icon: '☁️' }
+                    const cost = parseFloat(ticket.estimated_cost_usd || 0)
+                    const maxCost = Math.max(...tickets.filter(t => ['active','expiring'].includes(t.status)).map(t => parseFloat(t.estimated_cost_usd || 0)), 0.01)
+                    return (
+                      <div key={ticket.id} onClick={() => navigate(`/tickets/${ticket.id}`)} style={{
+                        display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', cursor: 'pointer',
+                        borderBottom: i < arr.length - 1 ? '0.5px solid #F0F0F0' : 'none',
+                      }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#FAFAFA'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                      >
+                        <div style={{ fontSize: 16, width: 28, textAlign: 'center', flexShrink: 0 }}>{meta.icon}</div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 500, color: '#111', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ticket.title}</div>
+                          <div style={{ height: 3, background: '#EBEBEB', borderRadius: 2, marginTop: 5, overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: `${(cost/maxCost)*100}%`, background: '#378ADD', borderRadius: 2 }} />
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#111', flexShrink: 0 }}>${cost.toFixed(2)}</div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
             </div>
           )}
         </div>
