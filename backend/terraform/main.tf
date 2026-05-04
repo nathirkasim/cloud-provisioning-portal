@@ -60,6 +60,12 @@ variable "department" {
   default     = "Engineering"
 }
 
+variable "frontend_origin" {
+  description = "Allowed CORS origin for S3 buckets (e.g. https://app.example.com)"
+  type        = string
+  default     = "http://localhost:5173"
+}
+
 # ── Existing modules ──────────────────────────────────────────────────────────
 
 module "web_app" {
@@ -104,6 +110,7 @@ module "s3_static_site" {
   duration_days    = var.duration_days
   aws_region       = var.aws_region
   department       = var.department
+  frontend_origin  = var.frontend_origin
 }
 
 module "s3_storage" {
@@ -115,6 +122,7 @@ module "s3_storage" {
   duration_days    = var.duration_days
   aws_region       = var.aws_region
   department       = var.department
+  frontend_origin  = var.frontend_origin
 }
 
 module "sns_topic" {

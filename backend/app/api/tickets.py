@@ -277,12 +277,24 @@ def get_ticket_console_link(
             detail="AWS Console access requires an active IAM Login session."
         )
 
-    magic_url = generate_federated_console_url(
-        access_key=aws_access_key,
-        secret_key=aws_secret_key,
-        template_type=template.template_type if template else None,
-        resource_id=ticket.instance_id
+    # Resolve the region from the ticket's provisioning output, fallback to env default
+    import os
+    provisioning_output = ticket.provisioning_output or {}
+    region = (
+        provisioning_output.get("aws_region")
+        or os.getenv("AWS_DEFAULT_REGION", "ap-south-1")
     )
+
+    try:
+        magic_url = generate_federated_console_url(
+            access_key=aws_access_key,
+            secret_key=aws_secret_key,
+            region=region,
+            template_type=template.template_type if template else None,
+            resource_id=ticket.instance_id
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
 
     if not magic_url:
         raise HTTPException(status_code=500, detail="Error generating AWS session.")

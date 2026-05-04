@@ -1,12 +1,14 @@
 import boto3
+import json
 import secrets
+from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.schemas.user import UserCreate, UserLogin, UserResponse, Token, IAMLogin
 from pydantic import BaseModel
-from app.utils.security import get_password_hash, verify_password, create_access_token, get_current_user, blocklist_token, redis_client
+from app.utils.security import get_password_hash, verify_password, create_access_token, get_current_user, blocklist_token, redis_client, SECRET_KEY, ALGORITHM
 from app.services.audit_service import log_action
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -107,13 +109,24 @@ def iam_login(credentials: IAMLogin, request: Request, db: Session = Depends(get
             db.add(quota)
             db.commit()
 
-        # 3. Embed keys in JWT — keys never written to DB
+        # 3. Store keys server-side in Redis (TTL matches token lifetime)
+        #    Only a session reference goes into the JWT — never raw credentials.
+        import secrets as _secrets
+        aws_session_id = _secrets.token_hex(16)
+        redis_client.setex(
+            f"aws_session:{aws_session_id}",
+            int(timedelta(hours=24).total_seconds()),
+            json.dumps({
+                "access_key": credentials.access_key,
+                "secret_key": credentials.secret_key
+            })
+        )
+
         token_data = {
             "sub": str(user.id),
             "email": user.email,
             "role": user.role,
-            "aws_access_key": credentials.access_key,
-            "aws_secret_key": credentials.secret_key
+            "aws_session_id": aws_session_id,
         }
         access_token = create_access_token(token_data)
 
@@ -145,6 +158,15 @@ def get_current_user_info(current_user=Depends(get_current_user), db: Session = 
 @router.post("/logout")
 def logout(current_user=Depends(get_current_user)):
     blocklist_token(current_user["token"])
+    # Clean up any AWS session stored in Redis for this token
+    try:
+        from jose import jwt as _jwt
+        payload = _jwt.decode(current_user["token"], SECRET_KEY, algorithms=[ALGORITHM])
+        aws_session_id = payload.get("aws_session_id")
+        if aws_session_id:
+            redis_client.delete(f"aws_session:{aws_session_id}")
+    except Exception:
+        pass
     return {"message": "Logged out successfully"}
 
 class ForgotPasswordRequest(BaseModel):

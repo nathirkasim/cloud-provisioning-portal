@@ -82,7 +82,7 @@ resource "aws_s3_bucket_cors_configuration" "static_site" {
   cors_rule {
     allowed_headers = ["*"]
     allowed_methods = ["PUT", "POST","GET", "HEAD"]
-    allowed_origins = ["http://localhost:5173"] # Change this in production
+    allowed_origins = [var.frontend_origin]
     expose_headers  = ["ETag"]
     max_age_seconds = 3000
   }

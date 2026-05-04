@@ -333,7 +333,11 @@ function FileUploader({ ticketId }) {
       const { data } = await getUploadUrl(ticketId, file.name)
       const res = await fetch(data.upload_url, { method: 'PUT', body: file, mode: 'cors', headers: { 'Content-Type': data.content_type } })
       if (res.ok) setResult({ type: 'success', msg: `✓ ${file.name} uploaded successfully` })
-      else throw new Error('Upload to S3 failed')
+      else {
+        const body = await res.text().catch(() => '')
+        const detail = body.match(/<Message>(.+?)<\/Message>/)?.[1] || `HTTP ${res.status}`
+        throw new Error(`Upload failed: ${detail}`)
+      }
     } catch (err) {
       setResult({ type: 'error', msg: err.message || 'Upload failed' })
     } finally { setUploading(false) }

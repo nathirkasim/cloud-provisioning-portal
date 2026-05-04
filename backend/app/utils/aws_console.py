@@ -55,30 +55,45 @@ SCOPED_POLICIES = {
         }]
     },
     "s3_storage": {
-        "Version": "2012-10-17",
-        "Statement": [{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
             "Effect": "Allow",
-            "Action": [
-                "s3:ListAllMyBuckets",
-                "s3:GetBucketLocation",
-                "s3:ListBucket",
-                "s3:GetObject"
-            ],
+            "Action": ["s3:ListAllMyBuckets", "s3:GetBucketLocation"],
             "Resource": "*"
-        }]
-    },
-    "s3_static_site": {
-        "Version": "2012-10-17",
-        "Statement": [{
+        },
+        {
             "Effect": "Allow",
-            "Action": [
-                "s3:ListAllMyBuckets",
-                "s3:GetBucketLocation",
-                "s3:ListBucket",
-                "s3:GetObject"
-            ],
+            "Action": ["s3:ListBucket"],
+            "Resource": "arn:aws:s3:::*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": ["s3:GetObject"],
+            "Resource": "arn:aws:s3:::*/*"
+        }
+    ]
+},
+"s3_static_site": {
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": ["s3:ListAllMyBuckets", "s3:GetBucketLocation"],
             "Resource": "*"
-        }]
+        },
+        {
+            "Effect": "Allow",
+            "Action": ["s3:ListBucket"],
+            "Resource": "arn:aws:s3:::*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": ["s3:GetObject"],
+            "Resource": "arn:aws:s3:::*/*"
+        }
+    ]
+
     },
     "dynamodb": {
         "Version": "2012-10-17",
@@ -154,10 +169,20 @@ def generate_federated_console_url(access_key, secret_key, region="ap-south-1", 
             "Statement": [{"Effect": "Allow", "Action": ["resource-explorer-2:List*"], "Resource": "*"}]
         })
 
-        federated_user = sts.get_federation_token(
-            Name="PortalFederatedSession",
-            Policy=json.dumps(policy)
-        )
+        try:
+            federated_user = sts.get_federation_token(
+                Name="PortalFederatedSession",
+                Policy=json.dumps(policy)
+            )
+        except sts.exceptions.ClientError as e:
+            error_code = e.response["Error"]["Code"]
+            if error_code in ("AccessDenied", "AuthorizationError"):
+                logger.error("IAM user lacks sts:GetFederationToken permission: %s", str(e))
+                raise PermissionError(
+                    "Your IAM user does not have the sts:GetFederationToken permission. "
+                    "Ask your AWS admin to add it to your IAM policy."
+                )
+            raise
 
         credentials = federated_user['Credentials']
         session_json = json.dumps({
@@ -171,6 +196,7 @@ def generate_federated_console_url(access_key, secret_key, region="ap-south-1", 
             "Action": "getSigninToken",
             "Session": session_json
         })
+        response.raise_for_status()
         signin_token = response.json().get("SigninToken")
 
         if template_type == 'serverless' and resource_id:
@@ -189,8 +215,8 @@ def generate_federated_console_url(access_key, secret_key, region="ap-south-1", 
         login_url = (
             f"{fed_url}?Action=login"
             f"&Issuer=CloudPortal"
-            f"&Destination={urllib.parse.quote(destination)}"
-            f"&SigninToken={signin_token}"
+            f"&Destination={urllib.parse.quote(destination, safe='')}"
+            f"&SigninToken={urllib.parse.quote(signin_token, safe='')}"
         )
         return login_url
 
