@@ -88,6 +88,15 @@ export const getUsers = () =>
 export const updateUserRole = (id, role) =>
   api.put(`/users/${id}/role`, { role })
 
+export const deactivateUser = (id) =>
+  api.delete(`/users/${id}`)
+
+export const getUserQuota = (id) =>
+  api.get(`/users/${id}/quota`)
+
+export const updateUserQuota = (id, data) =>
+  api.put(`/users/${id}/quota`, data)
+
 // Audit logs
 export const getAuditLogs = (params) =>
   api.get('/audit-logs/', { params })
@@ -117,3 +126,9 @@ export const cancelTicket = (id) =>
 
 export const getUploadUrl = (ticketId, filename) =>
   api.post(`/tickets/${ticketId}/upload-url`, { filename });
+
+export const updateMe = (data) =>
+  api.put('/auth/me', data)
+
+export const changePassword = (data) =>
+  api.post('/auth/change-password', data)

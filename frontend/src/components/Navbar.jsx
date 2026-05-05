@@ -59,8 +59,8 @@ export default function Navbar() {
       </div>
 
       <div className="flex items-center gap-4">
-        <div className="text-right">
-          <p className="text-sm font-medium text-gray-900">{user?.full_name}</p>
+        <div className="text-right cursor-pointer" onClick={() => navigate('/profile')}>
+          <p className="text-sm font-medium text-gray-900 hover:text-blue-600 transition-colors">{user?.full_name}</p>
           <p className="text-xs text-gray-500 capitalize">{user?.role} — {user?.department}</p>
         </div>
         <button

@@ -1,114 +1,26 @@
-# =========================
 # Python
-# =========================
 __pycache__/
-*.py[cod]
-*$py.class
-
-# Virtual environments
+*.pyc
+*.pyo
 venv/
-env/
-ENV/
-backend/venv/
-.venv/
-
-# Python build files
-build/
-dist/
 *.egg-info/
-.eggs/
-*.egg
 
-# Testing / coverage
-.pytest_cache/
-.coverage
-htmlcov/
-.cache/
+# Environment files — never push these
+.env
+.env.local
+*.env
+
+# Terraform — never push these
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+celerybeat-schedule
+
+# IDE
+.vscode/
+.idea/
 
 # Logs
 *.log
-
-# =========================
-# Environment Variables
-# =========================
-.env
-.env.*
-*.env
-
-# =========================
-# Node.js / Frontend
-# =========================
-node_modules/
-frontend/node_modules/
-
-# Build outputs
-.next/
-out/
-dist/
-frontend/dist/
-coverage/
-
-# Vite cache
-.vite/
-
-# =========================
-# Terraform
-# =========================
-**/.terraform/
-*.tfstate
-*.tfstate.*
-crash.log
-override.tf
-override.tf.json
-*_override.tf
-*_override.tf.json
-.terraform.lock.hcl
-
-# =========================
-# Docker
-# =========================
-docker-compose.override.yml
-
-# =========================
-# IDE / Editor
-# =========================
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# =========================
-# OS Files
-# =========================
-.DS_Store
-Thumbs.db
-
-# =========================
-# Archives / Large Files
-# =========================
-*.zip
-*.tar
-*.gz
-*.rar
-*.7z
 *.deb
-*.iso
-
-# =========================
-# Selenium / Browser
-# =========================
-chromedriver
-geckodriver
-
-# =========================
-# Database Files
-# =========================
-*.sqlite3
-*.db
-
-# =========================
-# Misc
-# =========================
-celerybeat-schedule
-tmp/
-temp/

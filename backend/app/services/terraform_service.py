@@ -37,12 +37,15 @@ def provision_environment(ticket_number: str, template_type: str, environment_na
 
     prepare_workspace(ticket_number)
 
+    frontend_origin = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")
+
     vars = [
         f"-var=template_type={template_type}",
         f"-var=environment_name={environment_name}",
         f"-var=ticket_number={ticket_number}",
         f"-var=owner_email={owner_email}",
         f"-var=duration_days={duration_days}",
+        f"-var=frontend_origin={frontend_origin}",
     ]
 
     if template_type == "database":

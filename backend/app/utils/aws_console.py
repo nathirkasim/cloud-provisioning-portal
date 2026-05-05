@@ -54,32 +54,6 @@ SCOPED_POLICIES = {
             "Resource": "*"
         }]
     },
-    "s3_storage": {
-        "Version": "2012-10-17",
-        "Statement": [{
-            "Effect": "Allow",
-            "Action": [
-                "s3:ListAllMyBuckets",
-                "s3:GetBucketLocation",
-                "s3:ListBucket",
-                "s3:GetObject"
-            ],
-            "Resource": "*"
-        }]
-    },
-    "s3_static_site": {
-        "Version": "2012-10-17",
-        "Statement": [{
-            "Effect": "Allow",
-            "Action": [
-                "s3:ListAllMyBuckets",
-                "s3:GetBucketLocation",
-                "s3:ListBucket",
-                "s3:GetObject"
-            ],
-            "Resource": "*"
-        }]
-    },
     "dynamodb": {
         "Version": "2012-10-17",
         "Statement": [{
@@ -135,7 +109,67 @@ SCOPED_POLICIES = {
     }
 }
 
-def generate_federated_console_url(access_key, secret_key, region="ap-south-1", template_type=None, resource_id=None):
+
+def build_s3_policy(bucket_arn: str) -> dict:
+    """
+    Build a federation policy scoped to a specific bucket ARN.
+    Includes all actions the AWS Console S3 browser needs to render
+    the bucket objects tab without AccessDenied errors.
+    s3:ListBucket requires the exact bucket ARN — wildcard does not work
+    in federation token policies.
+    """
+    return {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:ListAllMyBuckets",
+                    "s3:GetBucketLocation"
+                ],
+                "Resource": "*"
+            },
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:ListBucket",
+                    "s3:GetBucketAcl",
+                    "s3:GetBucketCORS",
+                    "s3:GetBucketVersioning",
+                    "s3:GetBucketTagging",
+                    "s3:GetBucketPublicAccessBlock",
+                    "s3:GetBucketPolicyStatus",
+                    "s3:GetEncryptionConfiguration",
+                    "s3:GetLifecycleConfiguration",
+                    "s3:GetBucketNotification",
+                    "s3:GetBucketRequestPayment",
+                    "s3:GetBucketOwnershipControls"
+                ],
+                "Resource": bucket_arn
+            },
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:GetObject",
+                    "s3:PutObject",
+                    "s3:DeleteObject",
+                    "s3:GetObjectTagging",
+                    "s3:GetObjectAttributes"
+                ],
+                "Resource": f"{bucket_arn}/*"
+            }
+        ]
+    }
+
+
+def generate_federated_console_url(
+    access_key,
+    secret_key,
+    region="ap-south-1",
+    template_type=None,
+    resource_id=None,
+    bucket_arn=None
+):
     """
     Exchanges IAM keys for a scoped federated session token and returns
     a deep link to the specific AWS resource in the console.
@@ -146,24 +180,41 @@ def generate_federated_console_url(access_key, secret_key, region="ap-south-1", 
             aws_secret_access_key=secret_key,
             region_name=region
         )
-        sts = session.client('sts')
+        sts = session.client("sts")
 
-        # Use scoped policy for the template type, fallback to read-only
-        policy = SCOPED_POLICIES.get(template_type, {
-            "Version": "2012-10-17",
-            "Statement": [{"Effect": "Allow", "Action": ["resource-explorer-2:List*"], "Resource": "*"}]
-        })
+        # Build policy — S3 types get a dynamic policy scoped to the exact bucket ARN
+        if template_type in ("s3_storage", "s3_static_site") and bucket_arn:
+            policy = build_s3_policy(bucket_arn)
+        else:
+            policy = SCOPED_POLICIES.get(template_type, {
+                "Version": "2012-10-17",
+                "Statement": [{
+                    "Effect": "Allow",
+                    "Action": ["resource-explorer-2:List*"],
+                    "Resource": "*"
+                }]
+            })
 
-        federated_user = sts.get_federation_token(
-            Name="PortalFederatedSession",
-            Policy=json.dumps(policy)
-        )
+        try:
+            federated_user = sts.get_federation_token(
+                Name="PortalFederatedSession",
+                Policy=json.dumps(policy)
+            )
+        except sts.exceptions.ClientError as e:
+            error_code = e.response["Error"]["Code"]
+            if error_code in ("AccessDenied", "AuthorizationError"):
+                logger.error("IAM user lacks sts:GetFederationToken permission: %s", str(e))
+                raise PermissionError(
+                    "Your IAM user does not have the sts:GetFederationToken permission. "
+                    "Ask your AWS admin to add it to your IAM policy."
+                )
+            raise
 
-        credentials = federated_user['Credentials']
+        credentials = federated_user["Credentials"]
         session_json = json.dumps({
-            'sessionId': credentials['AccessKeyId'],
-            'sessionKey': credentials['SecretAccessKey'],
-            'sessionToken': credentials['SessionToken']
+            "sessionId": credentials["AccessKeyId"],
+            "sessionKey": credentials["SecretAccessKey"],
+            "sessionToken": credentials["SessionToken"]
         })
 
         fed_url = "https://signin.aws.amazon.com/federation"
@@ -171,29 +222,51 @@ def generate_federated_console_url(access_key, secret_key, region="ap-south-1", 
             "Action": "getSigninToken",
             "Session": session_json
         })
+        response.raise_for_status()
         signin_token = response.json().get("SigninToken")
 
-        if template_type == 'serverless' and resource_id:
-            destination = f"https://{region}.console.aws.amazon.com/lambda/home?region={region}#/functions/{resource_id}?tab=code"
-        elif template_type == 'database' and resource_id:
-            destination = f"https://{region}.console.aws.amazon.com/rds/home?region={region}#database:id={resource_id};is-cluster=false"
-        elif template_type == 'web_app' and resource_id:
-            destination = f"https://{region}.console.aws.amazon.com/ec2/v2/home?region={region}#Instances:instanceId={resource_id}"
-        elif template_type in ['s3_storage', 's3_static_site'] and resource_id:
-            destination = f"https://s3.console.aws.amazon.com/s3/buckets/{resource_id}?region={region}"
-        elif template_type == 'dynamodb' and resource_id:
-            destination = f"https://{region}.console.aws.amazon.com/dynamodbv2/home?region={region}#item-explorer?table={resource_id}"
+        # Build deep-link destination based on resource type
+        if template_type == "serverless" and resource_id:
+            destination = (
+                f"https://{region}.console.aws.amazon.com/lambda/home"
+                f"?region={region}#/functions/{resource_id}?tab=code"
+            )
+        elif template_type == "database" and resource_id:
+            destination = (
+                f"https://{region}.console.aws.amazon.com/rds/home"
+                f"?region={region}#database:id={resource_id};is-cluster=false"
+            )
+        elif template_type == "web_app" and resource_id:
+            destination = (
+                f"https://{region}.console.aws.amazon.com/ec2/v2/home"
+                f"?region={region}#Instances:instanceId={resource_id}"
+            )
+        elif template_type in ("s3_storage", "s3_static_site") and resource_id:
+            destination = (
+                f"https://s3.console.aws.amazon.com/s3/buckets/{resource_id}"
+                f"?region={region}&tab=objects"
+            )
+        elif template_type == "dynamodb" and resource_id:
+            destination = (
+                f"https://{region}.console.aws.amazon.com/dynamodbv2/home"
+                f"?region={region}#item-explorer?table={resource_id}"
+            )
         else:
-            destination = f"https://{region}.console.aws.amazon.com/console/home?region={region}" 
+            destination = (
+                f"https://{region}.console.aws.amazon.com/console/home"
+                f"?region={region}"
+            )
 
         login_url = (
             f"{fed_url}?Action=login"
             f"&Issuer=CloudPortal"
-            f"&Destination={urllib.parse.quote(destination)}"
-            f"&SigninToken={signin_token}"
+            f"&Destination={urllib.parse.quote(destination, safe='')}"
+            f"&SigninToken={urllib.parse.quote(signin_token, safe='')}"
         )
         return login_url
 
+    except PermissionError:
+        raise
     except Exception as e:
         logger.error("Console federation failed: %s", str(e))
         return None

@@ -1,3 +1,4 @@
+import os
 import uuid
 import boto3
 from botocore.config import Config
@@ -41,16 +42,13 @@ def check_quota(user_id: int, estimated_cost: float, db: Session):
         )
 
 def attach_requester(ticket, db: Session):
-    """Attach requester name, email, and template details to a ticket object."""
     requester = db.query(User).filter(User.id == ticket.user_id).first()
     ticket.requester_name = requester.full_name if requester else None
     ticket.requester_email = requester.email if requester else None
-
     template = db.query(EnvironmentTemplate).filter(EnvironmentTemplate.id == ticket.template_id).first()
     if template:
         ticket.template = template
         ticket.template_type = template.template_type
-
     return ticket
 
 @router.get("/templates", response_model=list[TemplateResponse])
@@ -62,14 +60,9 @@ def estimate_cost(template_id: int, duration_days: int = 14, db: Session = Depen
     template = db.query(EnvironmentTemplate).filter(EnvironmentTemplate.id == template_id).first()
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
-    
-    # Get dynamic estimate
     estimate = CostEstimator().estimate_cost(template.template_type, template.resources or {}, duration_days)
-    
-    # Combine with template base cost
     final_monthly = estimate["estimated_monthly_cost"] + template.base_cost_usd
     final_total = float(final_monthly) * (estimate["duration_days"] / 30)
-    
     return {
         "estimated_monthly_cost": final_monthly,
         "estimated_total_cost": round(final_total, 2),
@@ -83,15 +76,10 @@ def create_ticket(ticket: TicketCreate, request: Request, db: Session = Depends(
     template = db.query(EnvironmentTemplate).filter(EnvironmentTemplate.id == ticket.template_id).first()
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
-
     resources = ticket.requested_resources or template.resources or {}
-    
-    # Calculate costs combining Estimator logic and Template Base Cost
     raw_estimate = CostEstimator().estimate_cost(template.template_type, resources, ticket.duration_days)
     final_cost_usd = raw_estimate["estimated_monthly_cost"] + template.base_cost_usd
-
     check_quota(current_user["id"], float(final_cost_usd), db)
-
     ticket_number = f"TKT-{uuid.uuid4().hex[:8].upper()}"
     new_ticket = TicketRequest(
         ticket_number=ticket_number,
@@ -107,7 +95,6 @@ def create_ticket(ticket: TicketCreate, request: Request, db: Session = Depends(
     db.add(new_ticket)
     db.commit()
     db.refresh(new_ticket)
-
     requester = db.query(User).filter(User.id == current_user["id"]).first()
     approvers = db.query(User).filter(User.role.in_(["admin", "approver"])).all()
     for approver in approvers:
@@ -118,7 +105,6 @@ def create_ticket(ticket: TicketCreate, request: Request, db: Session = Depends(
             requester.full_name if requester else current_user["email"],
             float(new_ticket.estimated_cost_usd)
         )
-
     log_action(
         db=db,
         action="ticket.created",
@@ -146,19 +132,16 @@ def get_my_tickets(db: Session = Depends(get_db), current_user=Depends(get_curre
 def get_my_quota(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     user_id = current_user["id"]
     quota = db.query(ResourceQuota).filter(ResourceQuota.user_id == user_id).first()
-
     active_statuses = ["pending_approval", "approved", "provisioning", "active"]
     active_count = db.query(TicketRequest).filter(
         TicketRequest.user_id == user_id,
         TicketRequest.status.in_(active_statuses)
     ).count()
-
     from sqlalchemy import func
     monthly_cost = db.query(func.sum(TicketRequest.estimated_cost_usd)).filter(
         TicketRequest.user_id == user_id,
         TicketRequest.status.in_(active_statuses)
     ).scalar() or 0
-
     return {
         "active_environments": active_count,
         "max_environments": quota.environments_limit if quota else 3,
@@ -195,12 +178,10 @@ def extend_environment(
         raise HTTPException(status_code=403, detail="Access denied")
     if ticket.status != "active":
         raise HTTPException(status_code=400, detail="Only active environments can be extended")
-
     old_duration = ticket.duration_days
     ticket.duration_days += extend.additional_days
     db.commit()
     db.refresh(ticket)
-
     log_action(
         db=db,
         action="ticket.extended",
@@ -215,7 +196,6 @@ def extend_environment(
         },
         ip_address=request.client.host
     )
-
     return {
         "message": f"Environment extended by {extend.additional_days} days",
         "ticket_number": ticket.ticket_number,
@@ -237,10 +217,8 @@ def cancel_ticket(
         raise HTTPException(status_code=403, detail="You can only cancel your own tickets")
     if ticket.status != "pending_approval":
         raise HTTPException(status_code=400, detail=f"Only pending tickets can be cancelled. Current status: {ticket.status}")
-
     ticket.status = "cancelled"
     db.commit()
-
     log_action(
         db=db,
         action="ticket.cancelled",
@@ -250,7 +228,6 @@ def cancel_ticket(
         details={"cancelled_by": current_user["email"]},
         ip_address=request.client.host
     )
-
     return {
         "message": "Ticket cancelled successfully",
         "ticket_number": ticket.ticket_number,
@@ -277,12 +254,38 @@ def get_ticket_console_link(
             detail="AWS Console access requires an active IAM Login session."
         )
 
-    magic_url = generate_federated_console_url(
-        access_key=aws_access_key,
-        secret_key=aws_secret_key,
-        template_type=template.template_type if template else None,
-        resource_id=ticket.instance_id
+    provisioning_output = ticket.provisioning_output or {}
+    region = (
+        provisioning_output.get("aws_region")
+        or os.getenv("AWS_DEFAULT_REGION", "ap-south-1")
     )
+
+    # Resolve bucket ARN for S3 types.
+    # 1. Try explicit ARN from Terraform output (new tickets after this fix)
+    # 2. Construct from bucket_id for older tickets provisioned before ARN output was added
+    bucket_arn = (
+        provisioning_output.get("s3_storage_bucket_arn")
+        or provisioning_output.get("s3_static_site_bucket_arn")
+    )
+    if not bucket_arn:
+        bucket_id = (
+            provisioning_output.get("s3_storage_bucket_id")
+            or provisioning_output.get("s3_static_site_bucket_id")
+        )
+        if bucket_id:
+            bucket_arn = f"arn:aws:s3:::{bucket_id}"
+
+    try:
+        magic_url = generate_federated_console_url(
+            access_key=aws_access_key,
+            secret_key=aws_secret_key,
+            region=region,
+            template_type=template.template_type if template else None,
+            resource_id=ticket.instance_id,
+            bucket_arn=bucket_arn
+        )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
 
     if not magic_url:
         raise HTTPException(status_code=500, detail="Error generating AWS session.")
@@ -299,16 +302,13 @@ def generate_presigned_upload_url(
     ticket = db.query(TicketRequest).filter(TicketRequest.id == ticket_id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket not found")
-
     if ticket.user_id != current_user["id"] and current_user.get("role") not in ["admin", "approver"]:
         raise HTTPException(status_code=403, detail="Access denied")
-
     if ticket.status != "active":
         raise HTTPException(status_code=400, detail="Environment must be active to upload files")
 
     outputs = ticket.provisioning_output or {}
     bucket_name = None
-
     if isinstance(outputs.get("s3_static_site_bucket_id"), dict):
         bucket_name = outputs["s3_static_site_bucket_id"].get("value")
     elif isinstance(outputs.get("s3_storage_bucket_id"), dict):
@@ -320,51 +320,42 @@ def generate_presigned_upload_url(
         raise HTTPException(status_code=400, detail="No S3 bucket found for this environment")
 
     try:
-        # Strict filename and content type matching
         clean_filename = payload.filename
         if clean_filename.endswith(".html.html"):
             clean_filename = clean_filename.replace(".html.html", ".html")
-
-        ext = clean_filename.split('.')[-1].lower()
+        ext = clean_filename.split(".")[-1].lower()
         mime_types = {
-            'html': 'text/html',
-            'css': 'text/css',
-            'js': 'application/javascript',
-            'png': 'image/png',
-            'jpg': 'image/jpeg',
-            'jpeg': 'image/jpeg'
+            "html": "text/html",
+            "css": "text/css",
+            "js": "application/javascript",
+            "png": "image/png",
+            "jpg": "image/jpeg",
+            "jpeg": "image/jpeg"
         }
-        content_type = mime_types.get(ext, 'application/octet-stream')
-
-        # Use server-side credentials (instance profile / ~/.aws) — NOT the user's
-        # federated IAM session. The user's session only has console read access;
-        # PutObject permission on portal buckets belongs to the backend role only.
+        content_type = mime_types.get(ext, "application/octet-stream")
         s3_client = boto3.client(
-            's3',
+            "s3",
             region_name="ap-south-1",
             endpoint_url="https://s3.ap-south-1.amazonaws.com",
             config=Config(
-                signature_version='s3v4',
-                s3={'addressing_style': 'virtual'}
+                signature_version="s3v4",
+                s3={"addressing_style": "virtual"}
             )
         )
-
         presigned_url = s3_client.generate_presigned_url(
-            'put_object',
+            "put_object",
             Params={
-                'Bucket': bucket_name,
-                'Key': clean_filename,
-                'ContentType': content_type
+                "Bucket": bucket_name,
+                "Key": clean_filename,
+                "ContentType": content_type
             },
             ExpiresIn=300
         )
-
         return {
             "upload_url": presigned_url,
             "bucket": bucket_name,
             "key": clean_filename,
             "content_type": content_type
         }
-
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate upload URL: {str(e)}")

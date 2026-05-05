@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useSearchParams, useNavigate, Link } from 'react-router-dom'
+import api from '../services/api'
 
 const inputSt = {
   width: '100%', fontSize: 13, padding: '9px 12px',
@@ -55,17 +56,11 @@ export default function ResetPassword() {
     if (password.length < 8)  { setError('Password must be at least 8 characters'); return }
     setLoading(true)
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/auth/reset-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, new_password: password }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.detail || 'Reset failed')
+      await api.post('/auth/reset-password', { token, new_password: password })
       setSuccess(true)
       setTimeout(() => navigate('/login'), 3000)
     } catch (err) {
-      setError(err.message || 'Invalid or expired reset link. Please request a new one.')
+      setError(err.response?.data?.detail || 'Invalid or expired reset link. Please request a new one.')
     } finally { setLoading(false) }
   }
 

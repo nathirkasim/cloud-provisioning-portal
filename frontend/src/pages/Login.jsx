@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { login, iamLogin, getMe } from '../services/api'
+import api from '../services/api'
 import { useAuth } from '../context/AuthContext'
 
 export default function Login() {
@@ -42,10 +43,7 @@ export default function Login() {
   const handleForgot = async () => {
     setForgotLoading(true)
     try {
-      await fetch(`${import.meta.env.VITE_API_URL}/auth/forgot-password`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: forgotEmail }),
-      })
+      await api.post('/auth/forgot-password', { email: forgotEmail })
       setForgotMsg('If that email is registered, a reset link has been sent.')
     } catch { setForgotMsg('Something went wrong. Please try again.') }
     finally { setForgotLoading(false) }

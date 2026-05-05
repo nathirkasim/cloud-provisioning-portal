@@ -15,6 +15,10 @@ terraform {
   }
 }
 
+provider "aws" {
+  region = var.aws_region
+}
+
 variable "template_type" {
   description = "Type of environment: web_app, database, serverless, s3_static_site, s3_storage, sns_topic, dynamodb, ecr_repository, ecs_container"
   type        = string
@@ -60,7 +64,13 @@ variable "department" {
   default     = "Engineering"
 }
 
-# ── Existing modules ──────────────────────────────────────────────────────────
+variable "frontend_origin" {
+  description = "Allowed CORS origin for S3 buckets (e.g. https://app.example.com)"
+  type        = string
+  default     = "http://localhost:5173"
+}
+
+# ── Modules ───────────────────────────────────────────────────────────────────
 
 module "web_app" {
   source           = "./modules/web_app"
@@ -93,8 +103,6 @@ module "serverless" {
   aws_region       = var.aws_region
 }
 
-# ── New Tier 1 modules ────────────────────────────────────────────────────────
-
 module "s3_static_site" {
   source           = "./modules/s3_static_site"
   count            = var.template_type == "s3_static_site" ? 1 : 0
@@ -104,6 +112,7 @@ module "s3_static_site" {
   duration_days    = var.duration_days
   aws_region       = var.aws_region
   department       = var.department
+  frontend_origin  = var.frontend_origin
 }
 
 module "s3_storage" {
@@ -115,6 +124,7 @@ module "s3_storage" {
   duration_days    = var.duration_days
   aws_region       = var.aws_region
   department       = var.department
+  frontend_origin  = var.frontend_origin
 }
 
 module "sns_topic" {
@@ -161,7 +171,7 @@ module "ecs_container" {
   department       = var.department
 }
 
-# ── Outputs — existing ────────────────────────────────────────────────────────
+# ── Outputs — web_app ─────────────────────────────────────────────────────────
 
 output "web_app_public_ip" {
   value = var.template_type == "web_app" ? module.web_app[0].public_ip : null
@@ -175,6 +185,8 @@ output "web_app_instance_id" {
   value = var.template_type == "web_app" ? module.web_app[0].instance_id : null
 }
 
+# ── Outputs — database ────────────────────────────────────────────────────────
+
 output "database_endpoint" {
   value = var.template_type == "database" ? module.database[0].db_endpoint : null
 }
@@ -182,6 +194,8 @@ output "database_endpoint" {
 output "db_instance_id" {
   value = var.template_type == "database" ? module.database[0].db_instance_id : null
 }
+
+# ── Outputs — serverless ──────────────────────────────────────────────────────
 
 output "serverless_api_endpoint" {
   value = var.template_type == "serverless" ? module.serverless[0].api_endpoint : null
@@ -191,15 +205,21 @@ output "function_name" {
   value = var.template_type == "serverless" ? module.serverless[0].function_name : null
 }
 
-# ── Outputs — new modules ─────────────────────────────────────────────────────
+# ── Outputs — s3_static_site ──────────────────────────────────────────────────
 
 output "s3_static_site_bucket_id" {
   value = var.template_type == "s3_static_site" ? module.s3_static_site[0].bucket_id : null
 }
 
+output "s3_static_site_bucket_arn" {
+  value = var.template_type == "s3_static_site" ? module.s3_static_site[0].bucket_arn : null
+}
+
 output "s3_static_site_url" {
   value = var.template_type == "s3_static_site" ? module.s3_static_site[0].website_endpoint : null
 }
+
+# ── Outputs — s3_storage ──────────────────────────────────────────────────────
 
 output "s3_storage_bucket_id" {
   value = var.template_type == "s3_storage" ? module.s3_storage[0].bucket_id : null
@@ -209,6 +229,8 @@ output "s3_storage_bucket_arn" {
   value = var.template_type == "s3_storage" ? module.s3_storage[0].bucket_arn : null
 }
 
+# ── Outputs — sns_topic ───────────────────────────────────────────────────────
+
 output "sns_topic_arn" {
   value = var.template_type == "sns_topic" ? module.sns_topic[0].topic_arn : null
 }
@@ -216,6 +238,8 @@ output "sns_topic_arn" {
 output "sns_topic_name" {
   value = var.template_type == "sns_topic" ? module.sns_topic[0].topic_name : null
 }
+
+# ── Outputs — dynamodb ────────────────────────────────────────────────────────
 
 output "dynamodb_table_name" {
   value = var.template_type == "dynamodb" ? module.dynamodb[0].table_name : null
@@ -225,6 +249,8 @@ output "dynamodb_table_arn" {
   value = var.template_type == "dynamodb" ? module.dynamodb[0].table_arn : null
 }
 
+# ── Outputs — ecr_repository ──────────────────────────────────────────────────
+
 output "ecr_repository_url" {
   value = var.template_type == "ecr_repository" ? module.ecr_repository[0].repository_url : null
 }
@@ -232,6 +258,8 @@ output "ecr_repository_url" {
 output "ecr_repository_name" {
   value = var.template_type == "ecr_repository" ? module.ecr_repository[0].repository_name : null
 }
+
+# ── Outputs — ecs_container ───────────────────────────────────────────────────
 
 output "ecs_cluster_name" {
   value = var.template_type == "ecs_container" ? module.ecs_container[0].cluster_name : null
@@ -244,3 +272,4 @@ output "ecs_service_name" {
 output "ecs_log_group_name" {
   value = var.template_type == "ecs_container" ? module.ecs_container[0].log_group_name : null
 }
+

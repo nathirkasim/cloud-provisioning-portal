@@ -1,12 +1,14 @@
 import boto3
+import json
 import secrets
+from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.user import User
 from app.schemas.user import UserCreate, UserLogin, UserResponse, Token, IAMLogin
 from pydantic import BaseModel
-from app.utils.security import get_password_hash, verify_password, create_access_token, get_current_user, blocklist_token, redis_client
+from app.utils.security import get_password_hash, verify_password, create_access_token, get_current_user, blocklist_token, redis_client, SECRET_KEY, ALGORITHM
 from app.services.audit_service import log_action
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -107,13 +109,24 @@ def iam_login(credentials: IAMLogin, request: Request, db: Session = Depends(get
             db.add(quota)
             db.commit()
 
-        # 3. Embed keys in JWT — keys never written to DB
+        # 3. Store keys server-side in Redis (TTL matches token lifetime)
+        #    Only a session reference goes into the JWT — never raw credentials.
+        import secrets as _secrets
+        aws_session_id = _secrets.token_hex(16)
+        redis_client.setex(
+            f"aws_session:{aws_session_id}",
+            int(timedelta(hours=24).total_seconds()),
+            json.dumps({
+                "access_key": credentials.access_key,
+                "secret_key": credentials.secret_key
+            })
+        )
+
         token_data = {
             "sub": str(user.id),
             "email": user.email,
             "role": user.role,
-            "aws_access_key": credentials.access_key,
-            "aws_secret_key": credentials.secret_key
+            "aws_session_id": aws_session_id,
         }
         access_token = create_access_token(token_data)
 
@@ -145,6 +158,15 @@ def get_current_user_info(current_user=Depends(get_current_user), db: Session = 
 @router.post("/logout")
 def logout(current_user=Depends(get_current_user)):
     blocklist_token(current_user["token"])
+    # Clean up any AWS session stored in Redis for this token
+    try:
+        from jose import jwt as _jwt
+        payload = _jwt.decode(current_user["token"], SECRET_KEY, algorithms=[ALGORITHM])
+        aws_session_id = payload.get("aws_session_id")
+        if aws_session_id:
+            redis_client.delete(f"aws_session:{aws_session_id}")
+    except Exception:
+        pass
     return {"message": "Logged out successfully"}
 
 class ForgotPasswordRequest(BaseModel):
@@ -177,3 +199,38 @@ def reset_password(payload: ResetPasswordRequest, db: Session = Depends(get_db))
     db.commit()
     redis_client.delete(f"reset:{payload.token}")
     return {"message": "Password reset successfully"}
+
+class UpdateMeRequest(BaseModel):
+    full_name: str | None = None
+    department: str | None = None
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+@router.put("/me")
+def update_me(payload: UpdateMeRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == current_user["id"]).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if payload.full_name is not None:
+        user.full_name = payload.full_name.strip()
+    if payload.department is not None:
+        user.department = payload.department.strip() or None
+    db.commit()
+    db.refresh(user)
+    return {"id": user.id, "email": user.email, "full_name": user.full_name,
+            "role": user.role, "department": user.department, "is_active": user.is_active}
+
+@router.post("/change-password")
+def change_password(payload: ChangePasswordRequest, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == current_user["id"]).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not verify_password(payload.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    if len(payload.new_password) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
+    user.password_hash = get_password_hash(payload.new_password)
+    db.commit()
+    return {"message": "Password changed successfully"}

@@ -30,3 +30,9 @@ variable "department" {
   type        = string
   default     = "Engineering"
 }
+
+variable "frontend_origin" {
+  description = "Allowed CORS origin for the frontend (e.g. https://app.example.com)"
+  type        = string
+  default     = "http://localhost:5173"
+}

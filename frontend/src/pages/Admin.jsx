@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import {
   getPendingTickets, approveTicket, rejectTicket, getUsers, updateUserRole,
+  deactivateUser, getUserQuota, updateUserQuota,
   getAuditLogs, destroyEnvironment, getAllTickets, getPortalStats,
   markInProgress, completeManualSetup
 } from '../services/api'
@@ -406,7 +407,7 @@ function ManualTab({ tickets, onMarkInProgress, onComplete, actionLoading }) {
 
 // ─── Tab: Active Environments ─────────────────────────────────────────────────
 
-function ActiveTab({ tickets, onDestroy, actionLoading }) {
+function ActiveTab({ tickets, onDestroy, actionLoading, onView }) {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
   const [confirmDestroy, setConfirmDestroy] = useState(null)
@@ -474,7 +475,10 @@ function ActiveTab({ tickets, onDestroy, actionLoading }) {
                         <div style={{ width: 28, height: 28, borderRadius: 6, background: '#F4F4F4', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>{meta.icon}</div>
                         <div>
                           <div style={{ fontSize: 12, fontWeight: 500, color: '#111', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ticket.title}</div>
-                          <div style={{ fontSize: 10, fontFamily: 'DM Mono, monospace', color: '#378ADD' }}>{ticket.ticket_number}</div>
+                          <div
+                            onClick={() => onView(ticket.id)}
+                            style={{ fontSize: 10, fontFamily: 'DM Mono, monospace', color: '#378ADD', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: '#B5D4F4' }}
+                          >{ticket.ticket_number}</div>
                         </div>
                       </div>
                     </td>
@@ -517,6 +521,7 @@ function ActiveTab({ tickets, onDestroy, actionLoading }) {
                         </div>
                       ) : (
                         <div style={{ display: 'flex', gap: 5 }}>
+                          <button onClick={() => onView(ticket.id)} style={{ fontSize: 10, fontWeight: 500, padding: '4px 10px', borderRadius: 4, background: '#E6F1FB', color: '#185FA5', border: '0.5px solid #B5D4F4', cursor: 'pointer' }}>View</button>
                           <button onClick={() => setConfirmDestroy(ticket.id)} style={{ fontSize: 10, fontWeight: 500, padding: '4px 10px', borderRadius: 4, background: 'transparent', color: '#A32D2D', border: '0.5px solid #FBBCBC', cursor: 'pointer' }}>Destroy</button>
                         </div>
                       )}
@@ -534,9 +539,41 @@ function ActiveTab({ tickets, onDestroy, actionLoading }) {
 
 // ─── Tab: Users ───────────────────────────────────────────────────────────────
 
-function UsersTab({ users, onRoleChange }) {
+function UsersTab({ users, onRoleChange, onDeactivate }) {
   const [search, setSearch] = useState('')
   const [pendingChange, setPendingChange] = useState(null)
+  const [expanded, setExpanded] = useState(null)
+  const [quotaData, setQuotaData] = useState({})
+  const [quotaEdits, setQuotaEdits] = useState({})
+  const [quotaSaving, setQuotaSaving] = useState(null)
+  const [quotaMsg, setQuotaMsg] = useState({})
+  const [confirmDeactivate, setConfirmDeactivate] = useState(null)
+
+  const toggleExpand = async (user) => {
+    if (expanded === user.id) { setExpanded(null); return }
+    setExpanded(user.id)
+    if (!quotaData[user.id]) {
+      try {
+        const res = await getUserQuota(user.id)
+        setQuotaData(prev => ({ ...prev, [user.id]: res.data }))
+        setQuotaEdits(prev => ({ ...prev, [user.id]: { environments_limit: res.data.environments_limit, monthly_budget_usd: res.data.monthly_budget_usd } }))
+      } catch { setQuotaData(prev => ({ ...prev, [user.id]: null })) }
+    }
+  }
+
+  const handleQuotaSave = async (userId) => {
+    setQuotaSaving(userId)
+    try {
+      await updateUserQuota(userId, quotaEdits[userId])
+      setQuotaData(prev => ({ ...prev, [userId]: { ...prev[userId], ...quotaEdits[userId] } }))
+      setQuotaMsg(prev => ({ ...prev, [userId]: { type: 'ok', text: 'Quota saved' } }))
+    } catch (err) {
+      setQuotaMsg(prev => ({ ...prev, [userId]: { type: 'err', text: err.response?.data?.detail || 'Failed to save' } }))
+    } finally {
+      setQuotaSaving(null)
+      setTimeout(() => setQuotaMsg(prev => ({ ...prev, [userId]: null })), 3000)
+    }
+  }
 
   const filtered = users.filter(u =>
     [u.full_name, u.email, u.department].some(v => (v||'').toLowerCase().includes(search.toLowerCase()))
@@ -544,11 +581,11 @@ function UsersTab({ users, onRoleChange }) {
 
   const avatarColors = ['#D6E9FB:#0C447C','#D2F0E7:#085041','#E5E3FD:#3C3489','#FDEDD6:#633806','#FCEBEB:#791F1F']
   const avatarColor = (i) => { const [bg, color] = avatarColors[i % avatarColors.length].split(':'); return { bg, color } }
-
   const roleColors = { developer: { bg: '#F0F0F0', color: '#666' }, approver: { bg: '#E6F1FB', color: '#0C447C' }, admin: { bg: '#E1F5EE', color: '#085041' } }
 
   return (
     <div style={{ background: '#fff', border: '0.5px solid #E8E8E8', borderRadius: 8, overflow: 'hidden' }}>
+      {/* Role change confirm modal */}
       {pendingChange && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
           <div style={{ background: '#fff', borderRadius: 10, border: '0.5px solid #E0E0E0', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: '20px 24px', maxWidth: 360, width: '100%', margin: 16 }}>
@@ -564,11 +601,27 @@ function UsersTab({ users, onRoleChange }) {
           </div>
         </div>
       )}
+      {/* Deactivate confirm modal */}
+      {confirmDeactivate && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
+          <div style={{ background: '#fff', borderRadius: 10, border: '0.5px solid #E0E0E0', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: '20px 24px', maxWidth: 360, width: '100%', margin: 16 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#A32D2D', marginBottom: 8 }}>Deactivate user?</div>
+            <div style={{ fontSize: 12, color: '#555', marginBottom: 18, lineHeight: 1.6 }}>
+              <strong>{confirmDeactivate.name}</strong> will immediately lose access to the portal. Their ticket history will be preserved.
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setConfirmDeactivate(null)} style={{ fontSize: 12, padding: '7px 14px', borderRadius: 5, border: '0.5px solid #DCDCDC', color: '#666', background: 'transparent', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={() => { onDeactivate(confirmDeactivate.id); setConfirmDeactivate(null); setExpanded(null) }}
+                style={{ fontSize: 12, fontWeight: 600, padding: '7px 14px', borderRadius: 5, background: '#A32D2D', color: '#fff', border: 'none', cursor: 'pointer' }}>Deactivate</button>
+            </div>
+          </div>
+        </div>
+      )}
       <SectionHeader title="User management" subtitle={`${users.length} registered users`} right={<SearchBox value={search} onChange={setSearch} />} />
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr style={{ background: '#FAFAFA' }}>
-            {['User','Department','Role','Status','Joined'].map(h => (
+            {['','User','Department','Role','Status','Joined'].map(h => (
               <th key={h} style={{ textAlign: 'left', padding: '8px 14px', fontSize: 10, fontWeight: 600, color: '#AAA', letterSpacing: '0.06em', borderBottom: '0.5px solid #EBEBEB' }}>{h}</th>
             ))}
           </tr>
@@ -577,40 +630,106 @@ function UsersTab({ users, onRoleChange }) {
           {filtered.map((user, i) => {
             const av = avatarColor(i)
             const rc = roleColors[user.role] || roleColors.developer
+            const isExpanded = expanded === user.id
+            const quota = quotaData[user.id]
+            const edits = quotaEdits[user.id] || {}
+            const msg = quotaMsg[user.id]
             return (
-              <tr key={user.id} style={{ borderBottom: '0.5px solid #F0F0F0' }}
-                onMouseEnter={e => e.currentTarget.style.background = '#FAFAFA'}
-                onMouseLeave={e => e.currentTarget.style.background = '#fff'}
-              >
-                <td style={{ padding: '10px 14px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                    <div style={{ width: 30, height: 30, borderRadius: '50%', background: av.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 600, color: av.color, flexShrink: 0 }}>
-                      {(user.full_name || user.email || 'U').slice(0,2).toUpperCase()}
+              <>
+                <tr key={user.id} style={{ borderBottom: isExpanded ? 'none' : '0.5px solid #F0F0F0', background: isExpanded ? '#FAFBFF' : '#fff' }}
+                  onMouseEnter={e => { if (!isExpanded) e.currentTarget.style.background = '#FAFAFA' }}
+                  onMouseLeave={e => { if (!isExpanded) e.currentTarget.style.background = '#fff' }}
+                >
+                  <td style={{ padding: '10px 10px 10px 14px', width: 24 }}>
+                    <button onClick={() => toggleExpand(user)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#AAA', fontSize: 11, padding: 2, lineHeight: 1 }}>
+                      {isExpanded ? '▾' : '▸'}
+                    </button>
+                  </td>
+                  <td style={{ padding: '10px 14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                      <div style={{ width: 30, height: 30, borderRadius: '50%', background: av.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 600, color: av.color, flexShrink: 0 }}>
+                        {(user.full_name || user.email || 'U').slice(0,2).toUpperCase()}
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 500, color: '#111' }}>{user.full_name || '—'}</div>
+                        <div style={{ fontSize: 10, color: '#AAA' }}>{user.email}</div>
+                      </div>
                     </div>
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 500, color: '#111' }}>{user.full_name || '—'}</div>
-                      <div style={{ fontSize: 10, color: '#AAA' }}>{user.email}</div>
-                    </div>
-                  </div>
-                </td>
-                <td style={{ padding: '10px 14px', fontSize: 11, color: '#666' }}>{user.department || '—'}</td>
-                <td style={{ padding: '10px 14px' }}>
-                  <select
-                    value={user.role}
-                    onChange={e => setPendingChange({ id: user.id, role: e.target.value, name: user.full_name || user.email })}
-                    style={{ ...inputSt, background: rc.bg, color: rc.color, fontWeight: 600, borderColor: 'transparent', cursor: 'pointer' }}
-                  >
-                    {['developer','approver','admin'].map(r => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}
-                  </select>
-                </td>
-                <td style={{ padding: '10px 14px' }}>
-                  {user.is_active
-                    ? <Pill bg="#E1F5EE" color="#085041">Active</Pill>
-                    : <Pill bg="#F0F0F0" color="#888">Inactive</Pill>
-                  }
-                </td>
-                <td style={{ padding: '10px 14px', fontSize: 11, color: '#AAA' }}>{new Date(user.created_at).toLocaleDateString()}</td>
-              </tr>
+                  </td>
+                  <td style={{ padding: '10px 14px', fontSize: 11, color: '#666' }}>{user.department || '—'}</td>
+                  <td style={{ padding: '10px 14px' }}>
+                    <select
+                      value={user.role}
+                      onChange={e => setPendingChange({ id: user.id, role: e.target.value, name: user.full_name || user.email })}
+                      style={{ ...inputSt, background: rc.bg, color: rc.color, fontWeight: 600, borderColor: 'transparent', cursor: 'pointer' }}
+                    >
+                      {['developer','approver','admin'].map(r => <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>)}
+                    </select>
+                  </td>
+                  <td style={{ padding: '10px 14px' }}>
+                    {user.is_active
+                      ? <Pill bg="#E1F5EE" color="#085041">Active</Pill>
+                      : <Pill bg="#F0F0F0" color="#888">Inactive</Pill>
+                    }
+                  </td>
+                  <td style={{ padding: '10px 14px', fontSize: 11, color: '#AAA' }}>{new Date(user.created_at).toLocaleDateString()}</td>
+                </tr>
+                {isExpanded && (
+                  <tr key={`${user.id}-drawer`} style={{ borderBottom: '0.5px solid #E8E8E8' }}>
+                    <td colSpan={6} style={{ padding: '0 14px 14px 48px', background: '#FAFBFF' }}>
+                      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                        {/* Quota section */}
+                        <div style={{ background: '#fff', border: '0.5px solid #E8E8E8', borderRadius: 7, padding: '12px 14px', minWidth: 280 }}>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: '#AAA', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 10 }}>Resource quota</div>
+                          {quota === undefined ? (
+                            <div style={{ fontSize: 11, color: '#BBB' }}>Loading…</div>
+                          ) : quota === null ? (
+                            <div style={{ fontSize: 11, color: '#E24B4A' }}>Quota record not found</div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <label style={{ fontSize: 11, color: '#666', width: 130 }}>Env limit</label>
+                                <input type="number" min="1" max="20" value={edits.environments_limit ?? quota.environments_limit}
+                                  onChange={e => setQuotaEdits(prev => ({ ...prev, [user.id]: { ...prev[user.id], environments_limit: parseInt(e.target.value,10) || 1 } }))}
+                                  style={{ width: 60, fontSize: 12, padding: '4px 8px', border: '0.5px solid #DCDCDC', borderRadius: 4, outline: 'none', background: '#FAFAFA', fontFamily: 'inherit' }}
+                                />
+                                <span style={{ fontSize: 10, color: '#AAA' }}>environments</span>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <label style={{ fontSize: 11, color: '#666', width: 130 }}>Monthly budget</label>
+                                <span style={{ fontSize: 11, color: '#666' }}>$</span>
+                                <input type="number" min="0" step="10" value={edits.monthly_budget_usd ?? quota.monthly_budget_usd}
+                                  onChange={e => setQuotaEdits(prev => ({ ...prev, [user.id]: { ...prev[user.id], monthly_budget_usd: parseFloat(e.target.value) || 0 } }))}
+                                  style={{ width: 72, fontSize: 12, padding: '4px 8px', border: '0.5px solid #DCDCDC', borderRadius: 4, outline: 'none', background: '#FAFAFA', fontFamily: 'inherit' }}
+                                />
+                                <span style={{ fontSize: 10, color: '#AAA' }}>/mo</span>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2 }}>
+                                <button onClick={() => handleQuotaSave(user.id)} disabled={quotaSaving === user.id}
+                                  style={{ fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 4, background: '#185FA5', color: '#fff', border: 'none', cursor: 'pointer', opacity: quotaSaving === user.id ? 0.6 : 1 }}>
+                                  {quotaSaving === user.id ? 'Saving…' : 'Save quota'}
+                                </button>
+                                {msg && <span style={{ fontSize: 11, color: msg.type === 'ok' ? '#085041' : '#A32D2D' }}>{msg.text}</span>}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        {/* Deactivate section */}
+                        {user.is_active && (
+                          <div style={{ background: '#fff', border: '0.5px solid #FBBCBC', borderRadius: 7, padding: '12px 14px', minWidth: 220 }}>
+                            <div style={{ fontSize: 10, fontWeight: 600, color: '#A32D2D', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 8 }}>Danger zone</div>
+                            <div style={{ fontSize: 11, color: '#666', marginBottom: 10, lineHeight: 1.5 }}>Deactivating this user will revoke their portal access immediately.</div>
+                            <button
+                              onClick={() => setConfirmDeactivate({ id: user.id, name: user.full_name || user.email })}
+                              style={{ fontSize: 11, fontWeight: 500, padding: '5px 12px', borderRadius: 4, background: 'transparent', color: '#A32D2D', border: '0.5px solid #FBBCBC', cursor: 'pointer' }}
+                            >Deactivate user</button>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </>
             )
           })}
         </tbody>
@@ -621,10 +740,30 @@ function UsersTab({ users, onRoleChange }) {
 
 // ─── Tab: Audit Log ───────────────────────────────────────────────────────────
 
-function AuditTab({ logs }) {
+function AuditTab() {
+  const [logs, setLogs] = useState([])
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
   const [expanded, setExpanded] = useState(null)
+  const [offset, setOffset] = useState(0)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [hasMore, setHasMore] = useState(true)
+  const [initialLoading, setInitialLoading] = useState(true)
+  const PAGE = 50
+
+  const fetchLogs = async (currentOffset, replace = false) => {
+    replace ? setInitialLoading(true) : setLoadingMore(true)
+    try {
+      const res = await getAuditLogs({ limit: PAGE, offset: currentOffset })
+      const incoming = res.data
+      setLogs(prev => replace ? incoming : [...prev, ...incoming])
+      setHasMore(incoming.length === PAGE)
+      setOffset(currentOffset + incoming.length)
+    } catch {}
+    finally { replace ? setInitialLoading(false) : setLoadingMore(false) }
+  }
+
+  useEffect(() => { fetchLogs(0, true) }, [])
 
   const categories = {
     all: logs,
@@ -642,7 +781,7 @@ function AuditTab({ logs }) {
     <div style={{ background: '#fff', border: '0.5px solid #E8E8E8', borderRadius: 8, overflow: 'hidden' }}>
       <SectionHeader
         title="Audit log"
-        subtitle="All portal actions"
+        subtitle={initialLoading ? 'Loading…' : `${logs.length} records loaded`}
         right={
           <div style={{ display: 'flex', gap: 7 }}>
             <div style={{ display: 'flex', gap: 3 }}>
@@ -658,9 +797,15 @@ function AuditTab({ logs }) {
           </div>
         }
       />
-      {filtered.length === 0
-        ? <EmptyState icon="📋" message="No audit logs found" />
-        : (
+      {initialLoading ? (
+        <div style={{ padding: '32px 0', textAlign: 'center' }}>
+          <div style={{ width: 20, height: 20, border: '2px solid #E0E0E0', borderTop: '2px solid #185FA5', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 8px' }} />
+          <div style={{ fontSize: 11, color: '#AAA' }}>Loading audit logs…</div>
+        </div>
+      ) : filtered.length === 0 ? (
+        <EmptyState icon="📋" message="No audit logs found" />
+      ) : (
+        <>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#FAFAFA' }}>
@@ -715,8 +860,32 @@ function AuditTab({ logs }) {
               })}
             </tbody>
           </table>
-        )
-      }
+          {hasMore && (
+            <div style={{ padding: '12px 16px', borderTop: '0.5px solid #EBEBEB', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 11, color: '#AAA' }}>{logs.length} records loaded</span>
+              <button
+                onClick={() => fetchLogs(offset)}
+                disabled={loadingMore}
+                style={{
+                  fontSize: 11, fontWeight: 500, padding: '5px 14px', borderRadius: 5, cursor: 'pointer',
+                  background: '#F5F5F5', color: '#555', border: '0.5px solid #DCDCDC',
+                  opacity: loadingMore ? 0.6 : 1, display: 'flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                {loadingMore
+                  ? <><div style={{ width: 10, height: 10, border: '1.5px solid #CCC', borderTop: '1.5px solid #555', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} /> Loading…</>
+                  : `Load next ${PAGE}`
+                }
+              </button>
+            </div>
+          )}
+          {!hasMore && logs.length > 0 && (
+            <div style={{ padding: '10px 16px', borderTop: '0.5px solid #EBEBEB', textAlign: 'center', fontSize: 11, color: '#CCC' }}>
+              All {logs.length} records loaded
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }
@@ -853,31 +1022,47 @@ export default function Admin() {
   const [manualTickets, setManualTickets] = useState([])
   const [activeTickets, setActiveTickets] = useState([])
   const [users, setUsers] = useState([])
-  const [auditLogs, setAuditLogs] = useState([])
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(null)
   const [completeModal, setCompleteModal] = useState(null)
   const [toast, setToast] = useState(null)
+  const [lastUpdated, setLastUpdated] = useState(null)
+  const [secondsSince, setSecondsSince] = useState(0)
+  const pollRef = useRef(null)
+  const countRef = useRef(null)
+  const POLL_INTERVAL = 30
 
   const showToast = (msg, type = 'success') => { setToast({ msg, type }); setTimeout(() => setToast(null), 5000) }
 
-  useEffect(() => { fetchAll() }, [])
+  useEffect(() => {
+    fetchAll()
+    pollRef.current = setInterval(fetchAll, POLL_INTERVAL * 1000)
+    return () => { clearInterval(pollRef.current); clearInterval(countRef.current) }
+  }, [])
+
+  useEffect(() => {
+    clearInterval(countRef.current)
+    if (!lastUpdated) return
+    setSecondsSince(0)
+    countRef.current = setInterval(() => setSecondsSince(s => s + 1), 1000)
+    return () => clearInterval(countRef.current)
+  }, [lastUpdated])
 
   const fetchAll = async () => {
     setLoading(true)
     try {
-      const [pendingRes, usersRes, auditRes, activeRes, statsRes] = await Promise.all([
-        getPendingTickets(), getUsers(), getAuditLogs({ limit: 50 }),
+      const [pendingRes, usersRes, activeRes, statsRes] = await Promise.all([
+        getPendingTickets(), getUsers(),
         getAllTickets({ status: 'active' }), getPortalStats(),
       ])
       const all = pendingRes.data
       setPending(all.filter(t => t.status === 'pending_approval'))
       setManualTickets(all.filter(t => ['pending_manual_setup','in_progress'].includes(t.status)))
       setUsers(usersRes.data)
-      setAuditLogs(auditRes.data)
       setActiveTickets(activeRes.data)
       setStats(statsRes.data)
+      setLastUpdated(new Date())
     } catch { showToast('Failed to load data', 'error') }
     finally { setLoading(false) }
   }
@@ -915,6 +1100,11 @@ export default function Admin() {
   const handleRoleChange = async (userId, newRole) => {
     try { await updateUserRole(userId, newRole); showToast('Role updated'); fetchAll() }
     catch (err) { showToast(err.response?.data?.detail || 'Failed to update role', 'error') }
+  }
+
+  const handleDeactivate = async (userId) => {
+    try { await deactivateUser(userId); showToast('User deactivated'); fetchAll() }
+    catch (err) { showToast(err.response?.data?.detail || 'Failed to deactivate user', 'error') }
   }
 
   const badgeCount = { pending: pending.length, manual: manualTickets.length, active: activeTickets.length, users: users.length }
@@ -1008,9 +1198,17 @@ export default function Admin() {
         <div style={{ padding: '12px 20px', borderBottom: '0.5px solid #E8E8E8', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
           <div>
             <div style={{ fontSize: 15, fontWeight: 600, color: '#111' }}>{TABS.find(t => t.id === tab)?.label}</div>
-            <div style={{ fontSize: 11, color: '#AAA', marginTop: 1 }}>Cloud Portal admin panel · ap-south-1</div>
+            <div style={{ fontSize: 11, color: '#AAA', marginTop: 1 }}>
+              Cloud Portal admin panel · ap-south-1
+              {lastUpdated && (
+                <span style={{ marginLeft: 8 }}>
+                  · updated {secondsSince < 5 ? 'just now' : `${secondsSince}s ago`}
+                  <span style={{ marginLeft: 6, color: '#CCC' }}>· next in {POLL_INTERVAL - (secondsSince % POLL_INTERVAL)}s</span>
+                </span>
+              )}
+            </div>
           </div>
-          <button onClick={fetchAll} style={{ fontSize: 11, padding: '5px 12px', borderRadius: 5, border: '0.5px solid #DCDCDC', color: '#666', background: 'transparent', cursor: 'pointer' }}>Refresh</button>
+          <button onClick={() => { fetchAll(); setSecondsSince(0) }} style={{ fontSize: 11, padding: '5px 12px', borRadius: 5, border: '0.5px solid #DCDCDC', color: '#666', background: 'transparent', cursor: 'pointer' }}>Refresh</button>
         </div>
 
         {/* Scrollable content */}
@@ -1030,9 +1228,9 @@ export default function Admin() {
 
           {tab === 'pending' && <PendingTab tickets={pending} onApprove={handleApprove} onReject={handleReject} actionLoading={actionLoading} />}
           {tab === 'manual'  && <ManualTab tickets={manualTickets} onMarkInProgress={handleMarkInProgress} onComplete={setCompleteModal} actionLoading={actionLoading} />}
-          {tab === 'active'  && <ActiveTab tickets={activeTickets} onDestroy={handleDestroy} actionLoading={actionLoading} />}
-          {tab === 'users'   && <UsersTab users={users} onRoleChange={handleRoleChange} />}
-          {tab === 'audit'   && <AuditTab logs={auditLogs} />}
+          {tab === 'active'  && <ActiveTab tickets={activeTickets} onDestroy={handleDestroy} actionLoading={actionLoading} onView={id => navigate(`/tickets/${id}`)} />}
+          {tab === 'users'   && <UsersTab users={users} onRoleChange={handleRoleChange} onDeactivate={handleDeactivate} />}
+          {tab === 'audit'   && <AuditTab />}
           {tab === 'stats'   && <StatsTab stats={stats} />}
         </div>
       </div>
