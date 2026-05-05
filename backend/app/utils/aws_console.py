@@ -113,6 +113,8 @@ SCOPED_POLICIES = {
 def build_s3_policy(bucket_arn: str) -> dict:
     """
     Build a federation policy scoped to a specific bucket ARN.
+    Includes all actions the AWS Console S3 browser needs to render
+    the bucket objects tab without AccessDenied errors.
     s3:ListBucket requires the exact bucket ARN — wildcard does not work
     in federation token policies.
     """
@@ -133,7 +135,15 @@ def build_s3_policy(bucket_arn: str) -> dict:
                     "s3:ListBucket",
                     "s3:GetBucketAcl",
                     "s3:GetBucketCORS",
-                    "s3:GetBucketVersioning"
+                    "s3:GetBucketVersioning",
+                    "s3:GetBucketTagging",
+                    "s3:GetBucketPublicAccessBlock",
+                    "s3:GetBucketPolicyStatus",
+                    "s3:GetEncryptionConfiguration",
+                    "s3:GetLifecycleConfiguration",
+                    "s3:GetBucketNotification",
+                    "s3:GetBucketRequestPayment",
+                    "s3:GetBucketOwnershipControls"
                 ],
                 "Resource": bucket_arn
             },
@@ -142,7 +152,9 @@ def build_s3_policy(bucket_arn: str) -> dict:
                 "Action": [
                     "s3:GetObject",
                     "s3:PutObject",
-                    "s3:DeleteObject"
+                    "s3:DeleteObject",
+                    "s3:GetObjectTagging",
+                    "s3:GetObjectAttributes"
                 ],
                 "Resource": f"{bucket_arn}/*"
             }
