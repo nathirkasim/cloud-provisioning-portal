@@ -1,0 +1,20 @@
+{
+    "CORSRules": [
+        {
+            "AllowedHeaders": [
+                "*"
+            ],
+            "AllowedMethods": [
+                "POST",
+                "PUT"
+            ],
+            "AllowedOrigins": [
+                "http://cloud-portal-alb-1165095130.us-east-1.elb.amazonaws.com"
+            ],
+            "ExposeHeaders": [
+                "ETag"
+            ],
+            "MaxAgeSeconds": 3000
+        }
+    ]
+}
