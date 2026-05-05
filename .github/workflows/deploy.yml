@@ -97,11 +97,11 @@ jobs:
               "echo === Logging into ECR ===",
               "aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 954930678370.dkr.ecr.us-east-1.amazonaws.com",
               "echo === Pulling new images ===",
-              "docker compose -f docker-compose.yml -f docker-compose.override.yml pull backend frontend worker beat",
+              "docker compose -f docker-compose.yaml -f docker-compose.override.yml pull backend frontend worker beat",
               "echo === Restarting app containers ===",
-              "docker compose -f docker-compose.yml -f docker-compose.override.yml up -d --no-deps backend frontend worker beat",
+              "docker compose -f docker-compose.yaml -f docker-compose.override.yml up -d --no-deps backend frontend worker beat",
               "sleep 20",
-              "docker compose -f docker-compose.yml -f docker-compose.override.yml ps",
+              "docker compose -f docker-compose.yaml -f docker-compose.override.yml ps",
               "echo === Deploy complete ==="
             ]' \
             --timeout-seconds 600 \
