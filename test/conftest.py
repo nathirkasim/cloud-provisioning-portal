@@ -5,7 +5,7 @@ import time
 import pytest
 import requests
 
-BASE_URL = "http://localhost:8000/api"
+BASE_URL = "http://cloud-portal-alb-1165095130.us-east-1.elb.amazonaws.com/api"
 
 ADMIN_EMAIL = "admin@cloudportal.com"
 ADMIN_PASSWORD = "admin123"
