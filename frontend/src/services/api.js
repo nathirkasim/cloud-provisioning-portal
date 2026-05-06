@@ -132,3 +132,37 @@ export const updateMe = (data) =>
 
 export const changePassword = (data) =>
   api.post('/auth/change-password', data)
+
+export const listS3Objects = (ticketId, prefix = '', continuationToken = null) =>
+  api.get(`/resources/${ticketId}/s3/objects`, { params: { prefix, continuation_token: continuationToken || undefined } })
+
+export const deleteS3Object = (ticketId, key) =>
+  api.delete(`/resources/${ticketId}/s3/object`, { data: { key } })
+
+export const getS3DownloadUrl = (ticketId, key) =>
+  api.post(`/resources/${ticketId}/s3/download-url`, { key })
+
+export const getS3UploadUrl = (ticketId, filename, prefix = '', contentType = 'application/octet-stream') =>
+  api.post(`/resources/${ticketId}/s3/upload-url`, { filename, prefix, content_type: contentType })
+
+// DynamoDB Browser
+export const scanDynamoDB = (ticketId, limit = 25, lastKey = null) =>
+  api.get(`/resources/${ticketId}/dynamodb/scan`, { params: { limit, last_key: lastKey || undefined } })
+
+export const putDynamoItem = (ticketId, item) =>
+  api.put(`/resources/${ticketId}/dynamodb/item`, { item })
+
+export const deleteDynamoItem = (ticketId, id) =>
+  api.delete(`/resources/${ticketId}/dynamodb/item`, { data: { id } })
+
+// ECR
+export const listEcrImages = (ticketId) =>
+  api.get(`/resources/${ticketId}/ecr/images`)
+
+// RDS Connection
+export const getRdsConnection = (ticketId) =>
+  api.get(`/resources/${ticketId}/rds/connection`)
+
+// EC2 SSH
+export const getEc2SshInfo = (ticketId) =>
+  api.get(`/resources/${ticketId}/ec2/ssh-info`)

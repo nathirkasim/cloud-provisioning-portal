@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { getTicket, extendEnvironment, getUploadUrl, getConsoleLink, cancelTicket } from '../services/api'
+import {
+  getTicket, extendEnvironment, getUploadUrl, getConsoleLink, cancelTicket,
+  listS3Objects, deleteS3Object, getS3DownloadUrl, getS3UploadUrl,
+  scanDynamoDB, putDynamoItem, deleteDynamoItem,
+  listEcrImages, getRdsConnection, getEc2SshInfo,
+} from '../services/api'
+import { ResourcePanel } from '../components/ResourcePanels'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -661,8 +667,8 @@ export default function TicketDetail() {
             />
           )}
 
-          {/* File uploader */}
-          {showUpload && <FileUploader ticketId={id} />}
+          {/* Resource-level panel (S3 file manager, DynamoDB browser, ECR images, RDS connection, EC2 SSH) */}
+          {isActive && !isManual && <ResourcePanel ticket={ticket} />}
 
         </div>
 
