@@ -2,11 +2,11 @@ name: Build & Deploy
 
 on:
   push:
-    branches: [feature1]
+    branches: [main]
 
 env:
-  AWS_REGION: us-east-1
-  ECR_REGISTRY: 954930678370.dkr.ecr.us-east-1.amazonaws.com
+  AWS_REGION: ap-south-1
+  ECR_REGISTRY: 003231568223.dkr.ecr.ap-south-1.amazonaws.com
   BACKEND_REPO: cloud-portal-backend
   FRONTEND_REPO: cloud-portal-frontend
   ASG_NAME: cloud-portal-asg
@@ -95,7 +95,7 @@ jobs:
               "git fetch origin feature1",
               "git reset --hard origin/feature1",
               "echo === Logging into ECR ===",
-              "aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 954930678370.dkr.ecr.us-east-1.amazonaws.com",
+              "aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 003231568223.dkr.ecr.ap-south-1.amazonaws.com",
               "echo === Pulling new images ===",
               "docker compose -f docker-compose.yaml -f docker-compose.override.yml pull backend frontend worker beat",
               "echo === Restarting app containers ===",
